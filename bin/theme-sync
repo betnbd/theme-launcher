@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+source "$PROJECT_ROOT/lib/theme-launcher.sh"
+
+THEME_LAUNCHER_VENDOR="$THEME_LAUNCHER_VENDOR_CATALOG"
+THEME_LAUNCHER_THEMES_DIR="$THEME_LAUNCHER_VENDOR/themes"
+THEME_LAUNCHER_VENDOR_TEMPLATES_DIR="$THEME_LAUNCHER_VENDOR/default/themed"
+
+theme_launcher_require curl
+theme_launcher_require tar
+
+THEME_LAUNCHER_SYNC_ARCHIVE_URL="${THEME_LAUNCHER_SYNC_ARCHIVE_URL:-}"
+THEME_LAUNCHER_SYNC_ROOT_DIR="${THEME_LAUNCHER_SYNC_ROOT_DIR:-}"
+THEME_LAUNCHER_SYNC_SOURCE_LABEL="${THEME_LAUNCHER_SYNC_SOURCE_LABEL:-remote source}"
+
+if [[ -z "$THEME_LAUNCHER_SYNC_ARCHIVE_URL" ]]; then
+  theme_launcher_fail "set THEME_LAUNCHER_SYNC_ARCHIVE_URL to a tar.gz archive for a theme catalog source"
+fi
+
+if [[ -z "$THEME_LAUNCHER_SYNC_ROOT_DIR" ]]; then
+  theme_launcher_fail "set THEME_LAUNCHER_SYNC_ROOT_DIR to the extracted archive root directory name"
+fi
+
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+
+archive="$tmpdir/catalog.tar.gz"
+extract_dir="$tmpdir/extract"
+staging_vendor="$tmpdir/vendor"
+
+mkdir -p "$extract_dir"
+curl -L -o "$archive" "$THEME_LAUNCHER_SYNC_ARCHIVE_URL"
+tar -xzf "$archive" -C "$extract_dir"
+
+source_dir="$extract_dir/$THEME_LAUNCHER_SYNC_ROOT_DIR"
+[[ -d "$source_dir/themes" ]] || theme_launcher_fail "unexpected archive layout"
+
+mkdir -p "$staging_vendor/default"
+cp -a "$source_dir/themes" "$staging_vendor/"
+cp -a "$source_dir/default/themed" "$staging_vendor/default/"
+date -Iseconds >"$staging_vendor/.synced-at"
+
+mkdir -p "$(dirname "$THEME_LAUNCHER_VENDOR")"
+rm -rf "$THEME_LAUNCHER_VENDOR.previous"
+if [[ -d "$THEME_LAUNCHER_VENDOR" ]]; then
+  mv "$THEME_LAUNCHER_VENDOR" "$THEME_LAUNCHER_VENDOR.previous"
+fi
+mv "$staging_vendor" "$THEME_LAUNCHER_VENDOR"
+rm -rf "$THEME_LAUNCHER_VENDOR.previous"
+
+printf "Synced %s themes from %s.\n" \
+  "$(find "$THEME_LAUNCHER_THEMES_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)" \
+  "$THEME_LAUNCHER_SYNC_SOURCE_LABEL"

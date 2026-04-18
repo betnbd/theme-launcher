@@ -1,0 +1,1063 @@
+#!/usr/bin/env python3
+
+import json
+import subprocess
+import sys
+import threading
+import os
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gdk, GLib, Gtk
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+CLI = SCRIPT_DIR / "theme-launcher"
+PREVIEW_DELAY_MS = 140
+APPLY_ENV = {"THEME_LAUNCHER_RELOAD_GHOSTTY": "1"}
+APP_CSS = """
+window.theme-launcher {
+  background:
+    radial-gradient(circle at top right, alpha(@accent_bg_color, 0.16), transparent 34%),
+    linear-gradient(180deg, alpha(@theme_bg_color, 0.99), alpha(@theme_bg_color, 0.95));
+}
+
+box.app-shell {
+  padding: 4px;
+}
+
+box.content-split {
+  min-height: 0;
+}
+
+box.header-panel,
+box.status-panel,
+box.action-panel,
+box.preview-panel,
+box.filter-panel,
+box.preview-actions {
+  border-radius: 14px;
+  border: 1px solid alpha(@theme_fg_color, 0.08);
+  background: alpha(@theme_fg_color, 0.035);
+}
+
+box.header-panel {
+  padding: 14px 16px;
+}
+
+label.window-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+label.window-subtitle {
+  line-height: 1.35;
+}
+
+listbox.theme-list {
+  background: transparent;
+}
+
+row.theme-row {
+  margin: 0 0 5px 0;
+  transition: 180ms ease;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+}
+
+row.theme-row:selected {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+row.theme-row > box {
+  border-radius: 4px;
+  border: 1px solid alpha(@theme_fg_color, 0.12);
+  background: alpha(@theme_fg_color, 0.035);
+  box-shadow: 0 4px 14px alpha(black, 0.03);
+  transition: 180ms ease;
+  margin: 0;
+}
+
+row.theme-row:selected > box,
+row.theme-row > box:hover {
+  background: alpha(@accent_bg_color, 0.10);
+  border-color: alpha(@theme_fg_color, 0.46);
+  box-shadow: 0 8px 20px alpha(@theme_fg_color, 0.08);
+}
+
+row.theme-row.current > box {
+  background: alpha(@accent_bg_color, 0.12);
+  border-color: alpha(@theme_fg_color, 0.58);
+}
+
+row.theme-row.pending > box {
+  background: alpha(@accent_bg_color, 0.16);
+  border-color: alpha(@theme_fg_color, 0.7);
+}
+
+label.theme-title {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+row.theme-row:selected label.theme-title,
+row.theme-row.current label.theme-title,
+row.theme-row.pending label.theme-title {
+  color: @theme_fg_color;
+}
+
+label.theme-meta {
+  font-size: 0.88rem;
+  min-height: 0;
+}
+
+row.theme-row:selected label.theme-meta,
+row.theme-row.current label.theme-meta,
+row.theme-row.pending label.theme-meta {
+  color: alpha(@theme_fg_color, 0.82);
+}
+
+label.theme-badge {
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: alpha(@theme_fg_color, 0.06);
+  color: alpha(@theme_fg_color, 0.78);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+label.theme-badge.current-badge {
+  background: alpha(@theme_fg_color, 0.08);
+  color: @theme_fg_color;
+}
+
+label.theme-badge.default-badge {
+  background: alpha(@success_color, 0.14);
+}
+
+label.theme-badge.pending-badge {
+  background: alpha(@warning_color, 0.16);
+}
+
+box.status-panel {
+  padding: 8px 12px;
+}
+
+label.status-label {
+  min-height: 20px;
+  font-weight: 500;
+}
+
+spinner.status-spinner {
+  min-width: 18px;
+  min-height: 18px;
+}
+
+box.action-panel {
+  padding: 10px 12px;
+}
+
+box.filter-panel {
+  padding: 8px 12px;
+}
+
+box.preview-panel {
+  padding: 12px;
+}
+
+frame.preview-frame {
+  border-radius: 18px;
+  border: 1px solid alpha(@theme_fg_color, 0.1);
+  background: alpha(@theme_fg_color, 0.03);
+  min-height: 220px;
+}
+
+picture.preview-image {
+  border-radius: 16px;
+}
+
+label.preview-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+label.preview-meta,
+label.preview-description {
+  line-height: 1.35;
+}
+
+label.preview-badge {
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: alpha(@accent_bg_color, 0.14);
+  color: @theme_fg_color;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+button.action-button {
+  border-radius: 999px;
+  min-width: 108px;
+  padding: 8px 18px;
+  transition: 160ms ease;
+}
+
+button.action-button:disabled {
+  opacity: 0.65;
+}
+
+popover.menu-popover contents {
+  padding: 6px;
+}
+
+button.menu-button {
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+
+button.filter-button {
+  border-radius: 999px;
+  padding: 6px 14px;
+}
+
+entry.filter-entry {
+  min-width: 170px;
+  border-radius: 999px;
+}
+
+box.preview-actions {
+  padding: 8px;
+}
+
+button.preview-action-button {
+  border-radius: 999px;
+  padding: 6px 14px;
+}
+"""
+
+
+def run_cli(*args, check=True, extra_env=None):
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+    result = subprocess.run(
+        [str(CLI), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    if check and result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip() or "Command failed"
+        raise RuntimeError(message)
+    return result
+
+
+def display_name(theme):
+    return " ".join(part.capitalize() for part in theme.split("-"))
+
+
+class ThemeRow(Gtk.ListBoxRow):
+    def __init__(self, theme, window):
+        super().__init__()
+        self.theme = theme
+        self.window = window
+        self.add_css_class("theme-row")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(14)
+        box.set_margin_end(14)
+        self.box = box
+
+        self.title_label = Gtk.Label(xalign=0)
+        self.title_label.set_text(display_name(theme))
+        self.title_label.add_css_class("theme-title")
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.append(self.title_label)
+
+        self.badge_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.badge_box.set_halign(Gtk.Align.END)
+        self.badge_box.set_hexpand(True)
+        header.append(self.badge_box)
+
+        self.meta_label = Gtk.Label(xalign=0)
+        self.meta_label.add_css_class("dim-label")
+        self.meta_label.add_css_class("theme-meta")
+
+        box.append(header)
+        box.append(self.meta_label)
+        self.set_child(box)
+
+        gesture = Gtk.GestureClick.new()
+        gesture.set_button(3)
+        gesture.connect("pressed", self.on_secondary_click)
+        self.add_controller(gesture)
+
+    def refresh(self):
+        self.remove_css_class("current")
+        self.remove_css_class("pending")
+        self._clear_badges()
+        is_selected = self.window.selected_theme() == self.theme
+        metadata = self.window.metadata_for(self.theme)
+
+        if self.theme == self.window.current_theme:
+            self.add_css_class("current")
+            self._add_badge("Current", "current-badge")
+        if self.theme == self.window.default_theme:
+            self._add_badge("Default", "default-badge")
+        if self.theme == self.window.pending_theme:
+            self.add_css_class("pending")
+            self._add_badge("Applying", "pending-badge")
+
+        if metadata.get("favorite"):
+            self._add_badge("Favorite", "default-badge")
+
+        if self.theme == self.window.current_theme:
+            self.meta_label.set_text("Live on the desktop now")
+        elif self.theme == self.window.default_theme:
+            self.meta_label.set_text("Default theme")
+        elif self.theme == self.window.pending_theme:
+            self.meta_label.set_text("Applying preview")
+        elif metadata.get("description"):
+            self.meta_label.set_text(metadata["description"])
+        elif metadata.get("variant"):
+            self.meta_label.set_text(f"{metadata['variant'].capitalize()} theme")
+        elif is_selected:
+            self.meta_label.set_text("Ready to preview")
+        else:
+            self.meta_label.set_text("")
+
+        self.meta_label.set_visible(bool(self.meta_label.get_text()))
+
+    def on_secondary_click(self, _gesture, _presses, x, y):
+        self.window.list_box.select_row(self)
+        self.window.show_row_menu(self, x, y)
+
+    def _add_badge(self, text, css_class):
+        label = Gtk.Label(label=text)
+        label.add_css_class("theme-badge")
+        label.add_css_class(css_class)
+        self.badge_box.append(label)
+
+    def _clear_badges(self):
+        child = self.badge_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.badge_box.remove(child)
+            child = next_child
+
+
+class ThemeLauncherWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Theme Launcher")
+        self.set_default_size(920, 620)
+        self.add_css_class("theme-launcher")
+
+        self.current_theme = ""
+        self.initial_theme = ""
+        self.default_theme = ""
+        self.variant_filter = "all"
+        self.favorites_only = False
+        self.search_query = ""
+        self.theme_metadata = {}
+        self.pending_theme = None
+        self.rows = []
+        self.menu_popover = None
+        self._suspend_selection_apply = False
+        self._confirmed = False
+        self._reverting = False
+        self._preview_source_id = 0
+        self._request_serial = 0
+        self._active_request_id = 0
+        self._latest_requested_theme = None
+        self._queued_theme = None
+        self._queued_close_on_success = False
+        self._close_when_idle = False
+        self._destroyed = False
+        self._apply_lock = threading.Lock()
+
+        self._install_css()
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        root.set_margin_top(10)
+        root.set_margin_bottom(10)
+        root.set_margin_start(10)
+        root.set_margin_end(10)
+        root.add_css_class("app-shell")
+        self.set_child(root)
+        self.connect("close-request", self.on_close_request)
+        self.connect("destroy", self.on_destroy)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        header.add_css_class("header-panel")
+        title = Gtk.Label(xalign=0)
+        title.set_text("Theme Launcher")
+        title.add_css_class("window-title")
+        subtitle = Gtk.Label(xalign=0)
+        subtitle.add_css_class("dim-label")
+        subtitle.add_css_class("window-subtitle")
+        subtitle.set_wrap(True)
+        subtitle.set_text("Move through themes to preview them, then apply when the desktop feels right. Right-click any row to make it the default.")
+        header.append(title)
+        header.append(subtitle)
+        root.append(header)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        content.add_css_class("content-split")
+        content.set_vexpand(True)
+        root.append(content)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_vexpand(True)
+        scroller.set_has_frame(False)
+        scroller.set_overlay_scrolling(False)
+        scroller.set_hexpand(True)
+        content.append(scroller)
+
+        self.list_box = Gtk.ListBox()
+        self.list_box.add_css_class("theme-list")
+        self.list_box.set_margin_top(2)
+        self.list_box.set_margin_bottom(2)
+        self.list_box.set_margin_start(2)
+        self.list_box.set_margin_end(14)
+        self.list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.list_box.connect("selected-rows-changed", self.on_selection_changed)
+        self.list_box.connect("row-activated", self.on_row_activated)
+        scroller.set_child(self.list_box)
+
+        filter_panel = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        filter_panel.add_css_class("filter-panel")
+        root.append(filter_panel)
+
+        filter_label = Gtk.Label(xalign=0)
+        filter_label.set_text("Show")
+        filter_panel.append(filter_label)
+
+        self.filter_buttons = {}
+        filter_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        filter_group.set_hexpand(True)
+        filter_panel.append(filter_group)
+
+        for filter_key, label in (("all", "All"), ("dark", "Dark"), ("light", "Light")):
+            button = Gtk.ToggleButton(label=label)
+            button.add_css_class("filter-button")
+            button.set_active(filter_key == self.variant_filter)
+            button.connect("toggled", self.on_filter_toggled, filter_key)
+            self.filter_buttons[filter_key] = button
+            filter_group.append(button)
+
+        self.favorites_button = Gtk.ToggleButton(label="Favorites")
+        self.favorites_button.add_css_class("filter-button")
+        self.favorites_button.connect("toggled", self.on_favorites_toggled)
+        filter_group.append(self.favorites_button)
+
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.add_css_class("filter-entry")
+        self.search_entry.set_placeholder_text("Search themes")
+        self.search_entry.connect("search-changed", self.on_search_changed)
+        filter_panel.append(self.search_entry)
+
+        preview_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        preview_panel.add_css_class("preview-panel")
+        preview_panel.set_size_request(320, -1)
+        content.append(preview_panel)
+
+        preview_title = Gtk.Label(xalign=0)
+        preview_title.set_text("Preview")
+        preview_title.add_css_class("preview-title")
+        preview_panel.append(preview_title)
+
+        preview_frame = Gtk.Frame()
+        preview_frame.add_css_class("preview-frame")
+        preview_panel.append(preview_frame)
+
+        self.preview_picture = Gtk.Picture()
+        self.preview_picture.add_css_class("preview-image")
+        self.preview_picture.set_can_shrink(True)
+        self.preview_picture.set_keep_aspect_ratio(True)
+        preview_frame.set_child(self.preview_picture)
+
+        self.preview_name_label = Gtk.Label(xalign=0)
+        self.preview_name_label.add_css_class("preview-title")
+        preview_panel.append(self.preview_name_label)
+
+        self.preview_meta_label = Gtk.Label(xalign=0)
+        self.preview_meta_label.add_css_class("dim-label")
+        self.preview_meta_label.add_css_class("preview-meta")
+        self.preview_meta_label.set_wrap(True)
+        preview_panel.append(self.preview_meta_label)
+
+        self.preview_badges = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.preview_badges.set_halign(Gtk.Align.START)
+        self.preview_badges.set_hexpand(True)
+        preview_panel.append(self.preview_badges)
+
+        preview_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        preview_actions.add_css_class("preview-actions")
+        preview_panel.append(preview_actions)
+
+        self.preview_favorite_button = Gtk.Button(label="Add Favorite")
+        self.preview_favorite_button.add_css_class("preview-action-button")
+        self.preview_favorite_button.connect("clicked", self.on_preview_toggle_favorite_clicked)
+        preview_actions.append(self.preview_favorite_button)
+
+        self.preview_default_button = Gtk.Button(label="Set Default")
+        self.preview_default_button.add_css_class("preview-action-button")
+        self.preview_default_button.connect("clicked", self.on_preview_set_default_clicked)
+        preview_actions.append(self.preview_default_button)
+
+        self.preview_description_label = Gtk.Label(xalign=0)
+        self.preview_description_label.add_css_class("dim-label")
+        self.preview_description_label.add_css_class("preview-description")
+        self.preview_description_label.set_wrap(True)
+        preview_panel.append(self.preview_description_label)
+
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        status_box.add_css_class("status-panel")
+        self.spinner = Gtk.Spinner()
+        self.spinner.add_css_class("status-spinner")
+        self.spinner.set_spinning(False)
+        status_box.append(self.spinner)
+
+        self.status_label = Gtk.Label(xalign=0)
+        self.status_label.add_css_class("dim-label")
+        self.status_label.add_css_class("status-label")
+        status_box.append(self.status_label)
+        root.append(status_box)
+
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        action_box.add_css_class("action-panel")
+        root.append(action_box)
+
+        button_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        button_group.set_halign(Gtk.Align.CENTER)
+        button_group.set_hexpand(True)
+        action_box.append(button_group)
+
+        cancel_button = Gtk.Button(label="Cancel")
+        cancel_button.add_css_class("action-button")
+        cancel_button.connect("clicked", lambda *_: self.close())
+        button_group.append(cancel_button)
+        self.cancel_button = cancel_button
+
+        apply_button = Gtk.Button(label="Apply")
+        apply_button.add_css_class("suggested-action")
+        apply_button.add_css_class("action-button")
+        apply_button.connect("clicked", self.on_apply_clicked)
+        button_group.append(apply_button)
+        self.apply_button = apply_button
+
+        self.load_themes()
+
+    def _install_css(self):
+        provider = Gtk.CssProvider()
+        provider.load_from_data(APP_CSS.encode("utf-8"))
+        display = Gdk.Display.get_default()
+        if display is not None:
+            Gtk.StyleContext.add_provider_for_display(
+                display,
+                provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            )
+
+    def load_themes(self):
+        self.reload_metadata()
+        themes = [line for line in run_cli("list").stdout.splitlines() if line]
+        self.current_theme = run_cli("current", check=False).stdout.strip()
+        self.initial_theme = self.current_theme
+        self.default_theme = run_cli("default", check=False).stdout.strip()
+
+        for theme in themes:
+            row = ThemeRow(theme, self)
+            row.refresh()
+            self.rows.append(row)
+            self.list_box.append(row)
+
+        self.apply_filters(refresh_status=False)
+
+        selected_theme = self.current_theme or self.default_theme
+        if selected_theme:
+            self._suspend_selection_apply = True
+            self.select_theme(selected_theme)
+            self._suspend_selection_apply = False
+
+        if selected_theme:
+            self.set_status(f"Current theme: {display_name(selected_theme)}", busy=False)
+        else:
+            self.set_status("Select a theme to preview it.", busy=False)
+        self.refresh_preview()
+
+    def reload_metadata(self):
+        self.theme_metadata = {
+            item["slug"]: item
+            for item in json.loads(run_cli("metadata").stdout)
+        }
+
+    def select_theme(self, theme):
+        for row in self.rows:
+            if row.theme == theme:
+                if not row.get_visible():
+                    continue
+                self.list_box.select_row(row)
+                break
+
+    def selected_theme(self):
+        row = self.list_box.get_selected_row()
+        return row.theme if row is not None else None
+
+    def metadata_for(self, theme):
+        return self.theme_metadata.get(theme, {
+            "slug": theme,
+            "name": display_name(theme),
+            "variant": "dark",
+            "description": "",
+            "badges": [],
+            "preview_path": "",
+        })
+
+    def refresh_preview(self):
+        theme = self.selected_theme() or self.current_theme or self.default_theme
+        if not theme:
+            self.preview_name_label.set_text("No theme selected")
+            self.preview_meta_label.set_text("Choose a theme to inspect its preview.")
+            self.preview_description_label.set_text("")
+            self._clear_preview_badges()
+            self.preview_picture.set_paintable(None)
+            self.preview_favorite_button.set_label("Add Favorite")
+            self.preview_default_button.set_sensitive(False)
+            return
+
+        metadata = self.metadata_for(theme)
+        self.preview_name_label.set_text(metadata.get("name") or display_name(theme))
+
+        meta_parts = [metadata.get("variant", "dark").capitalize()]
+        if theme == self.current_theme:
+            meta_parts.append("Current")
+        if theme == self.default_theme:
+            meta_parts.append("Default")
+        if theme == self.pending_theme:
+            meta_parts.append("Applying")
+        self.preview_meta_label.set_text("  ".join(meta_parts))
+
+        description = metadata.get("description") or "Catalog preview image for this theme."
+        self.preview_description_label.set_text(description)
+
+        self._set_preview_badges(metadata)
+        self._set_preview_image(metadata.get("preview_path", ""))
+        self.preview_favorite_button.set_label(
+            "Remove Favorite" if metadata.get("favorite") else "Add Favorite"
+        )
+        self.preview_default_button.set_sensitive(theme != self.default_theme)
+
+    def _set_preview_image(self, preview_path):
+        if not preview_path:
+            self.preview_picture.set_paintable(None)
+            return
+
+        try:
+            texture = Gdk.Texture.new_from_filename(preview_path)
+        except GLib.Error:
+            self.preview_picture.set_paintable(None)
+            return
+
+        self.preview_picture.set_paintable(texture)
+
+    def _set_preview_badges(self, metadata):
+        self._clear_preview_badges()
+        badges = list(metadata.get("badges", []))
+        if metadata.get("favorite"):
+            badges.append("Favorite")
+        if metadata.get("slug") == self.current_theme:
+            badges.append("Current")
+        if metadata.get("slug") == self.default_theme:
+            badges.append("Default")
+
+        for badge_text in badges[:5]:
+            badge = Gtk.Label(label=badge_text.title())
+            badge.add_css_class("preview-badge")
+            self.preview_badges.append(badge)
+
+    def _clear_preview_badges(self):
+        child = self.preview_badges.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.preview_badges.remove(child)
+            child = next_child
+
+    def refresh_rows(self):
+        for row in self.rows:
+            row.refresh()
+        self.refresh_preview()
+
+    def visible_themes(self):
+        return [row.theme for row in self.rows if row.get_visible()]
+
+    def apply_filters(self, refresh_status=True):
+        selected_theme = self.selected_theme()
+
+        for row in self.rows:
+            metadata = self.metadata_for(row.theme)
+            row_variant = metadata.get("variant", "dark")
+            matches_variant = self.variant_filter == "all" or row_variant == self.variant_filter
+            matches_favorite = not self.favorites_only or metadata.get("favorite")
+            query = self.search_query.casefold()
+            haystack = " ".join([
+                row.theme,
+                metadata.get("name", ""),
+                metadata.get("description", ""),
+                " ".join(metadata.get("badges", [])),
+                " ".join(metadata.get("tags", [])),
+            ]).casefold()
+            matches_search = not query or query in haystack
+            should_show = matches_variant and matches_favorite and matches_search
+            row.set_visible(should_show)
+
+        visible_themes = self.visible_themes()
+        next_theme = None
+        if selected_theme in visible_themes:
+            next_theme = selected_theme
+        elif self.current_theme in visible_themes:
+            next_theme = self.current_theme
+        elif self.default_theme in visible_themes:
+            next_theme = self.default_theme
+        elif visible_themes:
+            next_theme = visible_themes[0]
+
+        self._suspend_selection_apply = True
+        if next_theme is None:
+            self.list_box.unselect_all()
+        else:
+            self.select_theme(next_theme)
+        self._suspend_selection_apply = False
+
+        self.refresh_rows()
+
+        if refresh_status:
+            visible_count = len(visible_themes)
+            filter_parts = []
+            if self.variant_filter != "all":
+                filter_parts.append(self.variant_filter)
+            if self.favorites_only:
+                filter_parts.append("favorites")
+            if self.search_query:
+                filter_parts.append(f'matching "{self.search_query}"')
+
+            if filter_parts:
+                self.set_status(f"Showing {visible_count} theme(s): {', '.join(filter_parts)}", busy=False)
+            else:
+                self.set_status(f"Showing {visible_count} theme(s)", busy=False)
+
+    def on_filter_toggled(self, button, filter_key):
+        if not button.get_active():
+            if self.variant_filter == filter_key:
+                button.set_active(True)
+            return
+
+        for other_key, other_button in self.filter_buttons.items():
+            if other_key != filter_key and other_button.get_active():
+                other_button.set_active(False)
+
+        if self.variant_filter == filter_key:
+            return
+
+        self.variant_filter = filter_key
+        self.apply_filters()
+
+    def on_favorites_toggled(self, button):
+        self.favorites_only = button.get_active()
+        self.apply_filters()
+
+    def on_search_changed(self, entry):
+        self.search_query = entry.get_text().strip()
+        self.apply_filters()
+
+    def on_selection_changed(self, _list_box):
+        if self._suspend_selection_apply:
+            return
+
+        theme = self.selected_theme()
+        self.refresh_rows()
+        if theme is None or theme == self.current_theme:
+            return
+
+        self.schedule_preview(theme)
+
+    def on_row_activated(self, _list_box, row):
+        self.schedule_preview(row.theme, immediate=True)
+
+    def on_apply_clicked(self, _button):
+        theme = self.selected_theme()
+        if theme is None:
+            return
+        self._confirmed = True
+        self._close_when_idle = False
+        if self.pending_theme is not None and theme == self.pending_theme:
+            self.close()
+            return
+        if theme == self.current_theme:
+            self.close()
+            return
+        self.schedule_preview(theme, immediate=True, close_on_success=True)
+
+    def schedule_preview(self, theme, immediate=False, close_on_success=False):
+        if self._preview_source_id:
+            GLib.source_remove(self._preview_source_id)
+            self._preview_source_id = 0
+
+        if self.pending_theme is not None:
+            queued_theme_was = self._queued_theme
+            self._queued_theme = theme
+            self._queued_close_on_success = (
+                close_on_success
+                if queued_theme_was != theme
+                else self._queued_close_on_success or close_on_success
+            )
+            self._latest_requested_theme = theme
+            self.set_status(f"Queueing {display_name(theme)}...", busy=True)
+            self.refresh_rows()
+            return
+
+        self._latest_requested_theme = theme
+        if immediate:
+            self.apply_theme_async(theme, close_on_success=close_on_success)
+            return
+
+        self._preview_source_id = GLib.timeout_add(
+            PREVIEW_DELAY_MS,
+            self._run_scheduled_preview,
+            theme,
+        )
+
+    def _run_scheduled_preview(self, theme):
+        self._preview_source_id = 0
+        if self.pending_theme is None and theme == self._latest_requested_theme:
+            self.apply_theme_async(theme, close_on_success=False)
+        return False
+
+    def apply_theme_async(self, theme, close_on_success):
+        if theme == self.current_theme and self.pending_theme is None:
+            if close_on_success:
+                self.close()
+            return
+
+        self._request_serial += 1
+        request_id = self._request_serial
+        self._active_request_id = request_id
+        self.pending_theme = theme
+        self._queued_theme = None
+        self._queued_close_on_success = False
+        self.set_status(f"Applying {display_name(theme)}...", busy=True)
+        self.refresh_rows()
+
+        worker = threading.Thread(
+            target=self._apply_theme_worker,
+            args=(request_id, theme, close_on_success),
+            daemon=True,
+        )
+        worker.start()
+
+    def _run_theme_apply(self, theme):
+        run_cli("apply", theme, extra_env=APPLY_ENV)
+
+    def _apply_theme_worker(self, request_id, theme, close_on_success):
+        error = None
+        try:
+            with self._apply_lock:
+                self._run_theme_apply(theme)
+        except RuntimeError as exc:
+            error = str(exc)
+
+        GLib.idle_add(
+            self._finish_apply_theme,
+            request_id,
+            theme,
+            close_on_success,
+            error,
+        )
+
+    def _finish_apply_theme(self, request_id, theme, close_on_success, error):
+        if self._destroyed:
+            return False
+        if request_id != self._active_request_id:
+            return False
+
+        pending_was = self.pending_theme
+        self._active_request_id = 0
+        self.pending_theme = None
+
+        if error is None:
+            self.current_theme = theme
+            self.set_status(f"Previewing {display_name(theme)}", busy=False)
+            self.refresh_rows()
+            if close_on_success:
+                self.close()
+                return False
+        else:
+            self.set_status(error, busy=False)
+            if pending_was == theme:
+                self.refresh_rows()
+
+        if self._queued_theme and self._queued_theme != self.current_theme:
+            queued_theme = self._queued_theme
+            queued_close_on_success = self._queued_close_on_success
+            self._queued_theme = None
+            self._queued_close_on_success = False
+            self.apply_theme_async(
+                queued_theme,
+                close_on_success=queued_close_on_success,
+            )
+            return False
+
+        if self._close_when_idle and error is None:
+            self.close()
+            return False
+
+        return False
+
+    def set_default_theme(self, theme):
+        try:
+            run_cli("default", theme)
+        except RuntimeError:
+            return
+
+        self.default_theme = theme
+        self.set_status(f"Default set to {display_name(theme)}", busy=False)
+        self.refresh_rows()
+
+    def toggle_favorite_theme(self, theme):
+        try:
+            result = run_cli("favorite", "toggle", theme)
+        except RuntimeError:
+            return
+        self.reload_metadata()
+        action = result.stdout.strip() or "updated"
+        self.set_status(f"Favorite {action} for {display_name(theme)}", busy=False)
+        self.apply_filters(refresh_status=False)
+
+    def current_preview_theme(self):
+        return self.selected_theme() or self.current_theme or self.default_theme
+
+    def on_close_request(self, _window):
+        if self._preview_source_id:
+            GLib.source_remove(self._preview_source_id)
+            self._preview_source_id = 0
+
+        if self._reverting or self._confirmed:
+            return False
+
+        if self.pending_theme is not None:
+            self._close_when_idle = True
+            self._queued_theme = self.initial_theme or self.current_theme or self.pending_theme
+            self._queued_close_on_success = False
+            self.set_status("Finishing preview before closing...", busy=True)
+            self.refresh_rows()
+            return True
+
+        if self.initial_theme and self.current_theme != self.initial_theme:
+            self._reverting = True
+            try:
+                self._run_theme_apply(self.initial_theme)
+                self.current_theme = self.initial_theme
+                self.refresh_rows()
+            except RuntimeError:
+                pass
+            finally:
+                self._reverting = False
+
+        return False
+
+    def on_destroy(self, _widget):
+        self._destroyed = True
+
+    def set_status(self, message, busy=False):
+        if self._destroyed:
+            return
+        self.status_label.set_text(message)
+        self.spinner.set_spinning(busy)
+        self.apply_button.set_sensitive(not busy)
+        self.preview_favorite_button.set_sensitive(not busy)
+        self.preview_default_button.set_sensitive(not busy)
+
+    def show_row_menu(self, row, x, y):
+        if self.menu_popover is not None:
+            self.menu_popover.popdown()
+
+        self.menu_popover = Gtk.Popover()
+        self.menu_popover.add_css_class("menu-popover")
+        self.menu_popover.set_has_arrow(True)
+        self.menu_popover.set_autohide(True)
+        self.menu_popover.set_parent(row)
+
+        menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        default_button = Gtk.Button(label="Set as default")
+        default_button.add_css_class("menu-button")
+        default_button.connect("clicked", self.on_set_default_clicked, row.theme)
+        menu_box.append(default_button)
+
+        favorite_label = "Remove favorite" if self.metadata_for(row.theme).get("favorite") else "Add favorite"
+        favorite_button = Gtk.Button(label=favorite_label)
+        favorite_button.add_css_class("menu-button")
+        favorite_button.connect("clicked", self.on_toggle_favorite_clicked, row.theme)
+        menu_box.append(favorite_button)
+        self.menu_popover.set_child(menu_box)
+
+        rect = Gdk.Rectangle()
+        rect.x = int(x)
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
+        self.menu_popover.set_pointing_to(rect)
+        self.menu_popover.popup()
+
+    def on_set_default_clicked(self, _button, theme):
+        if self.menu_popover is not None:
+            self.menu_popover.popdown()
+        self.set_default_theme(theme)
+
+    def on_toggle_favorite_clicked(self, _button, theme):
+        if self.menu_popover is not None:
+            self.menu_popover.popdown()
+        self.toggle_favorite_theme(theme)
+
+    def on_preview_set_default_clicked(self, _button):
+        theme = self.current_preview_theme()
+        if theme is None:
+            return
+        self.set_default_theme(theme)
+
+    def on_preview_toggle_favorite_clicked(self, _button):
+        theme = self.current_preview_theme()
+        if theme is None:
+            return
+        self.toggle_favorite_theme(theme)
+
+
+class ThemeLauncherApp(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="local.theme.launcher")
+
+    def do_activate(self):
+        window = self.props.active_window
+        if window is None:
+            window = ThemeLauncherWindow(self)
+        window.present()
+
+
+def main():
+    app = ThemeLauncherApp()
+    return app.run(sys.argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

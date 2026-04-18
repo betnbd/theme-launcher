@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+source "$PROJECT_ROOT/lib/theme-launcher.sh"
+
+theme_launcher_cli_parse_apply_filters() {
+  THEME_LAUNCHER_TARGET_ONLY=""
+  THEME_LAUNCHER_TARGET_SKIP=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --only)
+        shift || true
+        [[ $# -gt 0 ]] || theme_launcher_fail "missing target list after --only"
+        [[ -z "$THEME_LAUNCHER_TARGET_SKIP" ]] || theme_launcher_fail "cannot combine --only and --skip"
+        THEME_LAUNCHER_TARGET_ONLY="$(theme_launcher_parse_target_filter "$1")"
+        ;;
+      --skip)
+        shift || true
+        [[ $# -gt 0 ]] || theme_launcher_fail "missing target list after --skip"
+        [[ -z "$THEME_LAUNCHER_TARGET_ONLY" ]] || theme_launcher_fail "cannot combine --only and --skip"
+        THEME_LAUNCHER_TARGET_SKIP="$(theme_launcher_parse_target_filter "$1")"
+        ;;
+      *)
+        theme_launcher_fail "unknown option: $1"
+        ;;
+    esac
+    shift || true
+  done
+
+  export THEME_LAUNCHER_TARGET_ONLY
+  export THEME_LAUNCHER_TARGET_SKIP
+}
+
+usage() {
+  cat <<'EOF'
+Usage: theme-launcher [choose|gui|apply|list|current|previous|doctor|metadata|favorite|default|apply-default|sync] [args]
+
+Commands:
+  choose           Open a picker and apply the chosen theme
+  gui              Open the GTK launcher
+  apply THEME      Apply a theme directly
+  list             List installed theme names
+  current          Print the current theme name
+  previous         Print the previous theme name
+  previous apply   Apply the previous theme
+  doctor           Check dependencies, paths, and theme assets
+  metadata [THEME] Print inferred theme metadata as JSON
+  favorite ...     Manage favorite themes
+  default          Print the default theme name
+  default THEME    Set the default theme name
+  apply-default    Apply the stored default theme
+  sync             Refresh the theme catalog from the configured source
+
+Apply filters:
+  --only TARGETS   Apply only selected targets, e.g. gnome,ghostty
+  --skip TARGETS   Apply every target except the selected ones
+
+Risky integrations:
+  GNOME Shell and Chromium are disabled by default during full applies.
+  Re-run with --only gnome-shell / --only chromium, or set:
+  THEME_LAUNCHER_ENABLE_GNOME_SHELL=1
+  THEME_LAUNCHER_ENABLE_CHROMIUM=1
+
+Favorite commands:
+  favorite list
+  favorite add THEME
+  favorite remove THEME
+  favorite toggle THEME
+
+Targets:
+  gnome, dock, gnome-shell, ghostty, btop, neovim, tmux, lazygit,
+  fastfetch, bat, fzf, gtk, vscode, chromium
+EOF
+}
+
+command_name="${1:-choose}"
+
+case "$command_name" in
+  choose)
+    shift || true
+    theme_launcher_cli_parse_apply_filters "$@"
+    if [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && [[ ! -t 0 || ! -t 1 ]] && [[ -x "$PROJECT_ROOT/bin/theme-launcher-gui" ]]; then
+      if [[ -z "${THEME_LAUNCHER_TARGET_ONLY:-}" && -z "${THEME_LAUNCHER_TARGET_SKIP:-}" ]]; then
+        exec "$PROJECT_ROOT/bin/theme-launcher-gui"
+      fi
+    fi
+    theme="$(theme_launcher_choose_theme)"
+    [[ -n "$theme" ]] || exit 0
+    theme_launcher_apply_theme "$theme"
+    printf "Applied theme: %s\n" "$(theme_launcher_display_name "$theme")"
+    ;;
+  gui)
+    exec "$PROJECT_ROOT/bin/theme-launcher-gui"
+    ;;
+  apply)
+    shift || true
+    [[ $# -ge 1 ]] || theme_launcher_fail "missing theme name"
+    theme="$1"
+    shift || true
+    theme_launcher_cli_parse_apply_filters "$@"
+    theme_launcher_apply_theme "$theme"
+    printf "Applied theme: %s\n" "$(theme_launcher_display_name "$(theme_launcher_slugify "$theme")")"
+    ;;
+  list)
+    theme_launcher_list
+    ;;
+  current)
+    theme_launcher_current
+    ;;
+  doctor)
+    theme_launcher_doctor
+    ;;
+  metadata)
+    shift || true
+    if [[ $# -ge 1 ]]; then
+      theme_launcher_theme_metadata "$1"
+    else
+      theme_launcher_all_theme_metadata
+    fi
+    ;;
+  favorite)
+    shift || true
+    subcommand="${1:-list}"
+    case "$subcommand" in
+      list)
+        theme_launcher_list_favorites
+        ;;
+      add)
+        shift || true
+        [[ $# -ge 1 ]] || theme_launcher_fail "missing theme name"
+        theme_launcher_set_favorite "$1" 1
+        ;;
+      remove)
+        shift || true
+        [[ $# -ge 1 ]] || theme_launcher_fail "missing theme name"
+        theme_launcher_set_favorite "$1" 0
+        ;;
+      toggle)
+        shift || true
+        [[ $# -ge 1 ]] || theme_launcher_fail "missing theme name"
+        theme_launcher_toggle_favorite "$1"
+        ;;
+      *)
+        theme_launcher_fail "unknown favorite subcommand: $subcommand"
+        ;;
+    esac
+    ;;
+  previous)
+    shift || true
+    if [[ "${1:-}" == "apply" ]]; then
+      shift || true
+      theme_launcher_cli_parse_apply_filters "$@"
+      theme_launcher_apply_previous_theme
+      printf "Applied theme: %s\n" "$(theme_launcher_display_name "$(theme_launcher_current)")"
+    else
+      [[ $# -eq 0 ]] || theme_launcher_fail "unknown option: ${1:-}"
+      theme_launcher_previous
+    fi
+    ;;
+  default)
+    shift || true
+    if [[ $# -ge 1 ]]; then
+      theme_launcher_set_default_theme "$1"
+      printf "Default theme: %s\n" "$(theme_launcher_display_name "$(theme_launcher_slugify "$1")")"
+    else
+      theme_launcher_default
+    fi
+    ;;
+  apply-default)
+    shift || true
+    theme_launcher_cli_parse_apply_filters "$@"
+    theme_launcher_apply_default_theme
+    printf "Applied theme: %s\n" "$(theme_launcher_display_name "$(theme_launcher_default)")"
+    ;;
+  sync)
+    exec "$PROJECT_ROOT/bin/theme-sync"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac
