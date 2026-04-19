@@ -60,6 +60,7 @@ Current target apps:
 - `theme-launcher doctor` checks dependencies, write access, theme asset shape, stored theme references, and common GNOME or Chromium integration gaps before apply time
 - CLI apply flows support one-shot `--only` and `--skip` target filters; GUI previews still apply the full theme set
 - Theme metadata is read from optional `theme.json` files and falls back to inferred values when the catalog only provides theme assets
+- Custom theme overlays can live in `~/.local/share/theme-launcher/themes` and override synced catalog themes of the same name
 - The launcher supports a small favorites list stored in local state and surfaced in the GTK launcher
 
 ## Theme Metadata

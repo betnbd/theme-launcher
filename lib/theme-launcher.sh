@@ -11,6 +11,7 @@ if [[ ! -d "$THEME_LAUNCHER_VENDOR_CATALOG" && -d "$THEME_LAUNCHER_VENDOR_LEGACY
   THEME_LAUNCHER_VENDOR="$THEME_LAUNCHER_VENDOR_LEGACY"
 fi
 THEME_LAUNCHER_THEMES_DIR="$THEME_LAUNCHER_VENDOR/themes"
+THEME_LAUNCHER_CUSTOM_THEMES_DIR="$THEME_LAUNCHER_HOME/themes"
 THEME_LAUNCHER_VENDOR_TEMPLATES_DIR="$THEME_LAUNCHER_VENDOR/default/themed"
 THEME_LAUNCHER_STATE_DIR="$THEME_LAUNCHER_HOME/state"
 THEME_LAUNCHER_CURRENT_DIR="$THEME_LAUNCHER_STATE_DIR/current"
@@ -102,12 +103,42 @@ theme_launcher_bat_theme_name() {
 
 theme_launcher_theme_path() {
   local theme
+  local root
   theme="$(theme_launcher_slugify "$1")"
-  printf "%s/%s" "$THEME_LAUNCHER_THEMES_DIR" "$theme"
+
+  while IFS= read -r root; do
+    [[ -n "$root" ]] || continue
+    if [[ -d "$root/$theme" ]]; then
+      printf "%s/%s" "$root" "$theme"
+      return 0
+    fi
+  done < <(theme_launcher_theme_roots)
+
+  printf "%s/%s" "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" "$theme"
 }
 
 theme_launcher_theme_exists() {
-  [[ -d "$(theme_launcher_theme_path "$1")" ]]
+  local theme
+  local root
+
+  theme="$(theme_launcher_slugify "$1")"
+
+  while IFS= read -r root; do
+    [[ -n "$root" ]] || continue
+    if [[ -d "$root/$theme" ]]; then
+      return 0
+    fi
+  done < <(theme_launcher_theme_roots)
+
+  return 1
+}
+
+theme_launcher_theme_roots() {
+  printf "%s\n" "$THEME_LAUNCHER_CUSTOM_THEMES_DIR"
+
+  if [[ "$THEME_LAUNCHER_THEMES_DIR" != "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" ]]; then
+    printf "%s\n" "$THEME_LAUNCHER_THEMES_DIR"
+  fi
 }
 
 theme_launcher_parent_dir() {
@@ -603,6 +634,12 @@ theme_launcher_doctor() {
     theme_launcher_doctor_fail "themes-dir" "missing: $THEME_LAUNCHER_THEMES_DIR"
   fi
 
+  if [[ -d "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" ]]; then
+    theme_launcher_doctor_pass "custom-themes-dir" "$THEME_LAUNCHER_CUSTOM_THEMES_DIR"
+  else
+    theme_launcher_doctor_warn "custom-themes-dir" "missing: $THEME_LAUNCHER_CUSTOM_THEMES_DIR"
+  fi
+
   mapfile -t themes < <(theme_launcher_list)
   if [[ "${#themes[@]}" -eq 0 ]]; then
     theme_launcher_doctor_fail "theme-catalog" "no themes installed; run: theme-launcher sync"
@@ -721,8 +758,17 @@ theme_launcher_doctor() {
 }
 
 theme_launcher_list() {
-  [[ -d "$THEME_LAUNCHER_THEMES_DIR" ]] || return 0
-  find "$THEME_LAUNCHER_THEMES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+  local root
+  local -a roots=()
+
+  while IFS= read -r root; do
+    [[ -d "$root" ]] || continue
+    roots+=("$root")
+  done < <(theme_launcher_theme_roots)
+
+  [[ "${#roots[@]}" -gt 0 ]] || return 0
+
+  find "${roots[@]}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -u
 }
 
 theme_launcher_current() {
@@ -1360,7 +1406,10 @@ theme_launcher_select_background() {
   local theme_dir="$1"
   local first_background
   first_background="$(find "$theme_dir/backgrounds" -maxdepth 1 -type f 2>/dev/null | sort | head -n 1 || true)"
-  [[ -n "$first_background" ]] || return 0
+  if [[ -z "$first_background" ]]; then
+    rm -f "$THEME_LAUNCHER_BACKGROUND_LINK"
+    return 0
+  fi
   ln -nsf "$first_background" "$THEME_LAUNCHER_BACKGROUND_LINK"
 }
 

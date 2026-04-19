@@ -16,6 +16,7 @@ from gi.repository import Gdk, GLib, Gtk
 SCRIPT_DIR = Path(__file__).resolve().parent
 CLI = SCRIPT_DIR / "theme-launcher"
 PREVIEW_DELAY_MS = 140
+SEARCH_FILTER_DELAY_MS = 120
 APPLY_ENV = {"THEME_LAUNCHER_RELOAD_GHOSTTY": "1"}
 APP_CSS = """
 window.theme-launcher {
@@ -32,12 +33,17 @@ box.content-split {
   min-height: 0;
 }
 
+box.list-panel {
+  min-height: 0;
+}
+
 box.header-panel,
 box.status-panel,
 box.action-panel,
 box.preview-panel,
 box.filter-panel,
-box.preview-actions {
+box.preview-actions,
+box.search-panel {
   border-radius: 14px;
   border: 1px solid alpha(@theme_fg_color, 0.08);
   background: alpha(@theme_fg_color, 0.035);
@@ -168,6 +174,14 @@ box.filter-panel {
   padding: 8px 12px;
 }
 
+box.search-panel {
+  padding: 10px 12px;
+}
+
+box.filter-panel {
+  margin-top: 8px;
+}
+
 box.preview-panel {
   padding: 12px;
 }
@@ -231,6 +245,10 @@ button.filter-button {
 entry.filter-entry {
   min-width: 170px;
   border-radius: 999px;
+}
+
+box.search-panel entry.filter-entry {
+  min-width: 0;
 }
 
 box.preview-actions {
@@ -378,6 +396,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self._confirmed = False
         self._reverting = False
         self._preview_source_id = 0
+        self._search_source_id = 0
         self._request_serial = 0
         self._active_request_id = 0
         self._latest_requested_theme = None
@@ -418,27 +437,30 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         content.set_vexpand(True)
         root.append(content)
 
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_vexpand(True)
-        scroller.set_has_frame(False)
-        scroller.set_overlay_scrolling(False)
-        scroller.set_hexpand(True)
-        content.append(scroller)
+        list_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        list_panel.add_css_class("list-panel")
+        list_panel.set_hexpand(True)
+        list_panel.set_vexpand(True)
+        content.append(list_panel)
 
-        self.list_box = Gtk.ListBox()
-        self.list_box.add_css_class("theme-list")
-        self.list_box.set_margin_top(2)
-        self.list_box.set_margin_bottom(2)
-        self.list_box.set_margin_start(2)
-        self.list_box.set_margin_end(14)
-        self.list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        self.list_box.connect("selected-rows-changed", self.on_selection_changed)
-        self.list_box.connect("row-activated", self.on_row_activated)
-        scroller.set_child(self.list_box)
+        search_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        search_panel.add_css_class("search-panel")
+        list_panel.append(search_panel)
+
+        search_label = Gtk.Label(xalign=0)
+        search_label.set_text("Search")
+        search_panel.append(search_label)
+
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.add_css_class("filter-entry")
+        self.search_entry.set_hexpand(True)
+        self.search_entry.set_placeholder_text("Type a theme name")
+        self.search_entry.connect("search-changed", self.on_search_changed)
+        search_panel.append(self.search_entry)
 
         filter_panel = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         filter_panel.add_css_class("filter-panel")
-        root.append(filter_panel)
+        list_panel.append(filter_panel)
 
         filter_label = Gtk.Label(xalign=0)
         filter_label.set_text("Show")
@@ -462,11 +484,23 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.favorites_button.connect("toggled", self.on_favorites_toggled)
         filter_group.append(self.favorites_button)
 
-        self.search_entry = Gtk.SearchEntry()
-        self.search_entry.add_css_class("filter-entry")
-        self.search_entry.set_placeholder_text("Search themes")
-        self.search_entry.connect("search-changed", self.on_search_changed)
-        filter_panel.append(self.search_entry)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_vexpand(True)
+        scroller.set_has_frame(False)
+        scroller.set_overlay_scrolling(False)
+        scroller.set_hexpand(True)
+        list_panel.append(scroller)
+
+        self.list_box = Gtk.ListBox()
+        self.list_box.add_css_class("theme-list")
+        self.list_box.set_margin_top(2)
+        self.list_box.set_margin_bottom(2)
+        self.list_box.set_margin_start(2)
+        self.list_box.set_margin_end(14)
+        self.list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.list_box.connect("selected-rows-changed", self.on_selection_changed)
+        self.list_box.connect("row-activated", self.on_row_activated)
+        scroller.set_child(self.list_box)
 
         preview_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         preview_panel.add_css_class("preview-panel")
@@ -779,8 +813,21 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.apply_filters()
 
     def on_search_changed(self, entry):
-        self.search_query = entry.get_text().strip()
+        if self._search_source_id:
+            GLib.source_remove(self._search_source_id)
+            self._search_source_id = 0
+
+        self._search_source_id = GLib.timeout_add(
+            SEARCH_FILTER_DELAY_MS,
+            self._apply_search_query,
+            entry.get_text().strip(),
+        )
+
+    def _apply_search_query(self, query):
+        self._search_source_id = 0
+        self.search_query = query
         self.apply_filters()
+        return False
 
     def on_selection_changed(self, _list_box):
         if self._suspend_selection_apply:
