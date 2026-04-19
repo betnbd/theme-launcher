@@ -706,11 +706,7 @@ theme_launcher_doctor() {
     theme_launcher_doctor_warn "gnome-shell:user-theme" "missing extension files; GNOME Shell top bar theming will not apply"
   fi
 
-  if [[ "${THEME_LAUNCHER_ENABLE_GNOME_SHELL:-0}" == "1" ]]; then
-    theme_launcher_doctor_pass "gnome-shell:opt-in" "enabled by THEME_LAUNCHER_ENABLE_GNOME_SHELL=1"
-  else
-    theme_launcher_doctor_warn "gnome-shell:opt-in" "disabled by default; use --only gnome-shell or set THEME_LAUNCHER_ENABLE_GNOME_SHELL=1"
-  fi
+  theme_launcher_doctor_pass "gnome-shell" "panel theming runs during normal applies when the user-theme extension is available"
 
   if [[ -x "$HOME/.local/bin/ghostty" || -x "/snap/bin/ghostty" || -x "$(command -v ghostty 2>/dev/null || true)" ]]; then
     theme_launcher_doctor_pass "ghostty" "$(command -v ghostty 2>/dev/null || printf "installed")"
@@ -1352,7 +1348,11 @@ theme_launcher_generate_gnome_shell_css() {
   box-shadow: inset 0 -1px ${muted};
 }
 
-#panel .panel-button {
+#panel .panel-button,
+#panel .panel-button .clock,
+#panel .panel-button .panel-status-indicators-box,
+#panel .panel-button .system-status-icon,
+#panel .panel-button .popup-menu-icon {
   color: ${foreground};
 }
 
@@ -1364,14 +1364,25 @@ theme_launcher_generate_gnome_shell_css() {
 #panel .panel-button:focus:hover,
 #panel .panel-button:active:hover,
 #panel .panel-button:checked:hover,
-#panel .panel-button:overview:hover {
+#panel .panel-button:overview:hover,
+#panel .panel-button:hover .clock,
+#panel .panel-button:focus .clock,
+#panel .panel-button:active .clock,
+#panel .panel-button:checked .clock,
+#panel .panel-button:overview .clock,
+#panel .panel-button:hover .system-status-icon,
+#panel .panel-button:focus .system-status-icon,
+#panel .panel-button:active .system-status-icon,
+#panel .panel-button:checked .system-status-icon,
+#panel .panel-button:overview .system-status-icon,
+#panel .panel-button:hover .popup-menu-icon,
+#panel .panel-button:focus .popup-menu-icon,
+#panel .panel-button:active .popup-menu-icon,
+#panel .panel-button:checked .popup-menu-icon,
+#panel .panel-button:overview .popup-menu-icon {
   background-color: ${selection_bg};
   color: ${selection_fg};
   box-shadow: none;
-}
-
-#panel .panel-button .clock {
-  color: ${foreground};
 }
 
 #dashtodockContainer #dash .dash-background {
@@ -1511,7 +1522,6 @@ theme_launcher_apply_gnome_shell() {
   local shell_theme_name="ThemeLauncher"
   local user_theme_extension="user-theme@gnome-shell-extensions.gcampax.github.com"
 
-  theme_launcher_risky_target_enabled "gnome-shell" || return 0
   [[ -f "$generated_file" ]] || return 0
 
   mkdir -p "$shell_theme_dir"

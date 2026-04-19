@@ -56,7 +56,7 @@ Current target apps:
 - Launcher-driven Ghostty theme changes reload the running terminal and suppress the config reload toast
 - Plain CLI applies update Ghostty config for new windows and sessions without forcing a live reload unless `THEME_LAUNCHER_RELOAD_GHOSTTY=1` is set
 - Running tmux sessions reload the generated theme automatically after apply
-- GNOME Shell and Chromium integrations are treated as higher-risk and stay disabled during full applies unless `THEME_LAUNCHER_ENABLE_GNOME_SHELL=1` or `THEME_LAUNCHER_ENABLE_CHROMIUM=1` is set; `--only gnome-shell` or `--only chromium` also opts in for a one-shot run
+- GNOME Shell panel theming now applies during normal theme changes when the `user-theme` extension is available; Chromium integration still stays opt-in unless `THEME_LAUNCHER_ENABLE_CHROMIUM=1` is set or `--only chromium` is used
 - `theme-launcher doctor` checks dependencies, write access, theme asset shape, stored theme references, and common GNOME or Chromium integration gaps before apply time
 - CLI apply flows support one-shot `--only` and `--skip` target filters; GUI previews still apply the full theme set
 - Theme metadata is read from optional `theme.json` files and falls back to inferred values when the catalog only provides theme assets
