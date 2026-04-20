@@ -10,9 +10,20 @@ source "$PROJECT_ROOT/lib/theme-launcher.sh"
 theme_launcher_cli_parse_apply_filters() {
   THEME_LAUNCHER_TARGET_ONLY=""
   THEME_LAUNCHER_TARGET_SKIP=""
+  THEME_LAUNCHER_SELECTED_WALLPAPER=""
+  THEME_LAUNCHER_RANDOMIZE_WALLPAPER="0"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --random-wallpaper)
+        THEME_LAUNCHER_RANDOMIZE_WALLPAPER="1"
+        ;;
+      --wallpaper)
+        shift || true
+        [[ $# -gt 0 ]] || theme_launcher_fail "missing wallpaper name after --wallpaper"
+        [[ "$THEME_LAUNCHER_RANDOMIZE_WALLPAPER" != "1" ]] || theme_launcher_fail "cannot combine --wallpaper and --random-wallpaper"
+        THEME_LAUNCHER_SELECTED_WALLPAPER="$1"
+        ;;
       --only)
         shift || true
         [[ $# -gt 0 ]] || theme_launcher_fail "missing target list after --only"
@@ -32,8 +43,13 @@ theme_launcher_cli_parse_apply_filters() {
     shift || true
   done
 
+  if [[ "$THEME_LAUNCHER_RANDOMIZE_WALLPAPER" == "1" ]]; then
+    THEME_LAUNCHER_SELECTED_WALLPAPER="$THEME_LAUNCHER_RANDOM_WALLPAPER_TOKEN"
+  fi
+
   export THEME_LAUNCHER_TARGET_ONLY
   export THEME_LAUNCHER_TARGET_SKIP
+  export THEME_LAUNCHER_SELECTED_WALLPAPER
 }
 
 usage() {
@@ -57,6 +73,8 @@ Commands:
   sync             Refresh the theme catalog from the configured source
 
 Apply filters:
+  --random-wallpaper  Pick a random wallpaper from THEME/backgrounds
+  --wallpaper NAME  Use a specific wallpaper file from THEME/backgrounds
   --only TARGETS   Apply only selected targets, e.g. gnome,ghostty
   --skip TARGETS   Apply every target except the selected ones
 
@@ -91,7 +109,7 @@ case "$command_name" in
     fi
     theme="$(theme_launcher_choose_theme)"
     [[ -n "$theme" ]] || exit 0
-    theme_launcher_apply_theme "$theme"
+    theme_launcher_apply_theme "$theme" "${THEME_LAUNCHER_SELECTED_WALLPAPER:-}"
     printf "Applied theme: %s\n" "$(theme_launcher_display_name "$theme")"
     ;;
   gui)
@@ -103,7 +121,7 @@ case "$command_name" in
     theme="$1"
     shift || true
     theme_launcher_cli_parse_apply_filters "$@"
-    theme_launcher_apply_theme "$theme"
+    theme_launcher_apply_theme "$theme" "${THEME_LAUNCHER_SELECTED_WALLPAPER:-}"
     printf "Applied theme: %s\n" "$(theme_launcher_display_name "$(theme_launcher_slugify "$theme")")"
     ;;
   list)
@@ -155,7 +173,7 @@ case "$command_name" in
     if [[ "${1:-}" == "apply" ]]; then
       shift || true
       theme_launcher_cli_parse_apply_filters "$@"
-      theme_launcher_apply_previous_theme
+      theme_launcher_apply_previous_theme "${THEME_LAUNCHER_SELECTED_WALLPAPER:-}"
       printf "Applied theme: %s\n" "$(theme_launcher_display_name "$(theme_launcher_current)")"
     else
       [[ $# -eq 0 ]] || theme_launcher_fail "unknown option: ${1:-}"
@@ -174,7 +192,7 @@ case "$command_name" in
   apply-default)
     shift || true
     theme_launcher_cli_parse_apply_filters "$@"
-    theme_launcher_apply_default_theme
+    theme_launcher_apply_default_theme "${THEME_LAUNCHER_SELECTED_WALLPAPER:-}"
     printf "Applied theme: %s\n" "$(theme_launcher_display_name "$(theme_launcher_default)")"
     ;;
   sync)

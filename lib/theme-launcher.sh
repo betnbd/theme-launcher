@@ -21,7 +21,10 @@ THEME_LAUNCHER_DEFAULT_THEME_FILE="$THEME_LAUNCHER_STATE_DIR/default-theme.name"
 THEME_LAUNCHER_PREVIOUS_THEME_FILE="$THEME_LAUNCHER_STATE_DIR/previous-theme.name"
 THEME_LAUNCHER_THEME_LINK="$THEME_LAUNCHER_STATE_DIR/theme"
 THEME_LAUNCHER_BACKGROUND_LINK="$THEME_LAUNCHER_STATE_DIR/background"
+THEME_LAUNCHER_WALLPAPER_NAME_FILE="$THEME_LAUNCHER_STATE_DIR/wallpaper.name"
+THEME_LAUNCHER_WALLPAPER_STATE_DIR="$THEME_LAUNCHER_STATE_DIR/wallpapers"
 THEME_LAUNCHER_FAVORITES_FILE="$THEME_LAUNCHER_STATE_DIR/favorites.list"
+THEME_LAUNCHER_RANDOM_WALLPAPER_TOKEN="__THEME_LAUNCHER_RANDOM__"
 THEME_LAUNCHER_MARKER_BEGIN="# theme-launcher begin"
 THEME_LAUNCHER_MARKER_END="# theme-launcher end"
 THEME_LAUNCHER_WARNED_RISKY_TARGETS=" "
@@ -344,6 +347,131 @@ theme_launcher_theme_is_favorite() {
   grep -Fxq "$theme" "$THEME_LAUNCHER_FAVORITES_FILE"
 }
 
+theme_launcher_wallpaper_state_file() {
+  local theme
+  theme="$(theme_launcher_slugify "$1")"
+  printf "%s/%s.name\n" "$THEME_LAUNCHER_WALLPAPER_STATE_DIR" "$theme"
+}
+
+theme_launcher_current_wallpaper() {
+  [[ -f "$THEME_LAUNCHER_WALLPAPER_NAME_FILE" ]] && cat "$THEME_LAUNCHER_WALLPAPER_NAME_FILE" || true
+}
+
+theme_launcher_saved_wallpaper() {
+  local file
+  file="$(theme_launcher_wallpaper_state_file "$1")"
+  [[ -f "$file" ]] && cat "$file" || true
+}
+
+theme_launcher_set_saved_wallpaper() {
+  local theme="$1"
+  local wallpaper_name="$2"
+  local file
+
+  file="$(theme_launcher_wallpaper_state_file "$theme")"
+  mkdir -p "$THEME_LAUNCHER_WALLPAPER_STATE_DIR"
+  if [[ -n "$wallpaper_name" ]]; then
+    printf "%s\n" "$wallpaper_name" >"$file"
+  else
+    rm -f "$file"
+  fi
+}
+
+theme_launcher_list_backgrounds() {
+  local theme_dir="$1"
+  find "$theme_dir/backgrounds" -maxdepth 1 -type f 2>/dev/null | sort
+}
+
+theme_launcher_random_background() {
+  local theme_dir="$1"
+  local backgrounds=()
+  local index=0
+
+  mapfile -t backgrounds < <(theme_launcher_list_backgrounds "$theme_dir")
+  [[ "${#backgrounds[@]}" -gt 0 ]] || return 0
+
+  if command -v shuf >/dev/null 2>&1; then
+    printf "%s\n" "${backgrounds[@]}" | shuf -n 1
+    return 0
+  fi
+
+  index=$((RANDOM % ${#backgrounds[@]}))
+  printf "%s\n" "${backgrounds[$index]}"
+}
+
+theme_launcher_materialize_background() {
+  local source_file="$1"
+  local target_file="$2"
+
+  mkdir -p "$(dirname "$target_file")"
+
+  if command -v python3 >/dev/null 2>&1; then
+    if python3 - "$source_file" "$target_file" <<'PY'
+import sys
+
+try:
+    from PIL import Image
+except Exception:
+    raise SystemExit(1)
+
+source_path, target_path = sys.argv[1], sys.argv[2]
+image = Image.open(source_path)
+if image.mode not in ("RGB", "RGBA"):
+    image = image.convert("RGB")
+image.save(target_path, format="PNG")
+PY
+    then
+      return 0
+    fi
+  fi
+
+  cp -f "$source_file" "$target_file"
+}
+
+theme_launcher_wallpaper_path() {
+  local theme_dir="$1"
+  local requested="$2"
+  local background
+
+  [[ -n "$requested" ]] || return 1
+
+  while IFS= read -r background; do
+    [[ -n "$background" ]] || continue
+    if [[ "$(basename "$background")" == "$requested" || "$background" == "$requested" ]]; then
+      printf "%s\n" "$background"
+      return 0
+    fi
+  done < <(theme_launcher_list_backgrounds "$theme_dir")
+
+  return 1
+}
+
+theme_launcher_resolve_wallpaper() {
+  local theme="$1"
+  local theme_dir="$2"
+  local requested="${3:-}"
+  local wallpaper=""
+  local saved=""
+
+  if [[ "$requested" == "$THEME_LAUNCHER_RANDOM_WALLPAPER_TOKEN" ]]; then
+    theme_launcher_random_background "$theme_dir"
+    return 0
+  fi
+
+  if wallpaper="$(theme_launcher_wallpaper_path "$theme_dir" "$requested" 2>/dev/null)"; then
+    printf "%s\n" "$wallpaper"
+    return 0
+  fi
+
+  saved="$(theme_launcher_saved_wallpaper "$theme")"
+  if wallpaper="$(theme_launcher_wallpaper_path "$theme_dir" "$saved" 2>/dev/null)"; then
+    printf "%s\n" "$wallpaper"
+    return 0
+  fi
+
+  theme_launcher_list_backgrounds "$theme_dir" | head -n 1
+}
+
 theme_launcher_list_favorites() {
   [[ -f "$THEME_LAUNCHER_FAVORITES_FILE" ]] || return 0
   sort -u "$THEME_LAUNCHER_FAVORITES_FILE"
@@ -404,6 +532,9 @@ theme_launcher_theme_metadata() {
   local metadata_file
   local custom_json="{}"
   local favorite_json="false"
+  local wallpaper_json="[]"
+  local selected_wallpaper=""
+  local current_wallpaper=""
 
   if [[ -n "$requested_theme" ]]; then
     theme="$(theme_launcher_slugify "$requested_theme")"
@@ -429,6 +560,27 @@ theme_launcher_theme_metadata() {
     favorite_json="true"
   fi
 
+  wallpaper_json="$(
+    theme_launcher_list_backgrounds "$theme_dir" | while IFS= read -r background; do
+      [[ -n "$background" ]] || continue
+      jq -cn \
+        --arg name "$(basename "$background")" \
+        --arg label "$(basename "$background" | sed -E 's/\.[^.]+$//; s/^[0-9]+[-_]?//; s/[-_]+/ /g; s/\b(.)/\U\1/g')" \
+        --arg path "$background" \
+        '{name: $name, label: $label, path: $path}'
+    done | jq -cs '.'
+  )"
+
+  selected_wallpaper="$(theme_launcher_saved_wallpaper "$theme")"
+  if ! theme_launcher_wallpaper_path "$theme_dir" "$selected_wallpaper" >/dev/null 2>&1; then
+    selected_wallpaper=""
+  fi
+  if [[ -z "$selected_wallpaper" ]]; then
+    selected_wallpaper="$(printf "%s\n" "$wallpaper_json" | jq -r '.[0].name // ""')"
+  fi
+
+  current_wallpaper="$(theme_launcher_current_wallpaper)"
+
   jq -n \
     --arg slug "$theme" \
     --arg default_name "$default_name" \
@@ -437,6 +589,9 @@ theme_launcher_theme_metadata() {
     --arg preview_abs "$preview_abs" \
     --argjson custom "$custom_json" \
     --argjson favorite "$favorite_json" \
+    --argjson wallpapers "$wallpaper_json" \
+    --arg selected_wallpaper "$selected_wallpaper" \
+    --arg current_wallpaper "$current_wallpaper" \
     '
     {
         slug: $slug,
@@ -458,6 +613,11 @@ theme_launcher_theme_metadata() {
           + [((($custom.variant // $variant) | ascii_upcase))]
         ),
         tags: (($custom.tags // []) | map(select(type == "string"))),
+        wallpapers: $wallpapers,
+        selected_wallpaper: $selected_wallpaper,
+        current_wallpaper: (
+          if $current_wallpaper != "" then $current_wallpaper else null end
+        ),
         favorite: $favorite,
         source: (
           if ($custom | length) > 0 then "theme.json" else "inferred" end
@@ -787,10 +947,11 @@ theme_launcher_set_default_theme() {
 
 theme_launcher_apply_default_theme() {
   local theme
+  local requested_wallpaper="${1:-}"
 
   theme="$(theme_launcher_default)"
   [[ -n "$theme" ]] || theme_launcher_fail "no default theme set"
-  theme_launcher_apply_theme "$theme"
+  theme_launcher_apply_theme "$theme" "$requested_wallpaper"
 }
 
 theme_launcher_previous() {
@@ -799,10 +960,11 @@ theme_launcher_previous() {
 
 theme_launcher_apply_previous_theme() {
   local theme
+  local requested_wallpaper="${1:-}"
 
   theme="$(theme_launcher_previous)"
   [[ -n "$theme" ]] || theme_launcher_fail "no previous theme available"
-  theme_launcher_apply_theme "$theme"
+  theme_launcher_apply_theme "$theme" "$requested_wallpaper"
 }
 
 theme_launcher_theme_json_field() {
@@ -1414,14 +1576,27 @@ EOF
 }
 
 theme_launcher_select_background() {
-  local theme_dir="$1"
-  local first_background
-  first_background="$(find "$theme_dir/backgrounds" -maxdepth 1 -type f 2>/dev/null | sort | head -n 1 || true)"
-  if [[ -z "$first_background" ]]; then
+  local theme="$1"
+  local theme_dir="$2"
+  local requested_wallpaper="${3:-}"
+  local selected_background
+  local wallpaper_name=""
+  local materialized_background="$theme_dir/wallpaper.png"
+
+  selected_background="$(theme_launcher_resolve_wallpaper "$theme" "$theme_dir" "$requested_wallpaper")"
+  if [[ -z "$selected_background" ]]; then
     rm -f "$THEME_LAUNCHER_BACKGROUND_LINK"
+    rm -f "$THEME_LAUNCHER_WALLPAPER_NAME_FILE"
+    theme_launcher_set_saved_wallpaper "$theme" ""
     return 0
   fi
-  ln -nsf "$first_background" "$THEME_LAUNCHER_BACKGROUND_LINK"
+
+  wallpaper_name="$(basename "$selected_background")"
+  mkdir -p "$THEME_LAUNCHER_STATE_DIR"
+  theme_launcher_materialize_background "$selected_background" "$materialized_background"
+  ln -nsf "$materialized_background" "$THEME_LAUNCHER_BACKGROUND_LINK"
+  printf "%s\n" "$wallpaper_name" >"$THEME_LAUNCHER_WALLPAPER_NAME_FILE"
+  theme_launcher_set_saved_wallpaper "$theme" "$wallpaper_name"
 }
 
 theme_launcher_apply_gnome() {
@@ -1809,6 +1984,7 @@ theme_launcher_reload_target() {
 
 theme_launcher_apply_theme() {
   local requested_theme="$1"
+  local requested_wallpaper="${2:-}"
   local theme
   local theme_dir
   local previous_dir="$THEME_LAUNCHER_STATE_DIR/previous"
@@ -1840,7 +2016,7 @@ theme_launcher_apply_theme() {
   fi
   printf "%s\n" "$theme" >"$THEME_LAUNCHER_THEME_NAME_FILE"
   ln -nsf "$THEME_LAUNCHER_CURRENT_DIR" "$THEME_LAUNCHER_THEME_LINK"
-  theme_launcher_select_background "$THEME_LAUNCHER_CURRENT_DIR"
+  theme_launcher_select_background "$theme" "$THEME_LAUNCHER_CURRENT_DIR" "$requested_wallpaper"
 
   theme_launcher_for_each_target theme_launcher_apply_target
   theme_launcher_for_each_target theme_launcher_reload_target

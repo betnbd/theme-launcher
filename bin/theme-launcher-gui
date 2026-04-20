@@ -18,6 +18,7 @@ CLI = SCRIPT_DIR / "theme-launcher"
 PREVIEW_DELAY_MS = 140
 SEARCH_FILTER_DELAY_MS = 120
 APPLY_ENV = {"THEME_LAUNCHER_RELOAD_GHOSTTY": "1"}
+RANDOM_WALLPAPER_TOKEN = "__THEME_LAUNCHER_RANDOM__"
 APP_CSS = """
 window.theme-launcher {
   background:
@@ -259,6 +260,28 @@ button.preview-action-button {
   border-radius: 999px;
   padding: 6px 14px;
 }
+
+box.wallpaper-panel {
+  padding: 8px 10px;
+}
+
+dropdown.wallpaper-dropdown {
+  min-width: 220px;
+}
+
+button.wallpaper-randomize {
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+
+box.preview-mode-switcher {
+  padding: 6px;
+}
+
+button.preview-mode-button {
+  border-radius: 999px;
+  padding: 5px 12px;
+}
 """
 
 
@@ -281,6 +304,12 @@ def run_cli(*args, check=True, extra_env=None):
 
 def display_name(theme):
     return " ".join(part.capitalize() for part in theme.split("-"))
+
+
+def wallpaper_label(name):
+    stem = Path(name).stem
+    cleaned = stem.lstrip("0123456789").lstrip("-_").replace("-", " ").replace("_", " ")
+    return (cleaned or stem).title()
 
 
 class ThemeRow(Gtk.ListBoxRow):
@@ -384,6 +413,8 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
 
         self.current_theme = ""
         self.initial_theme = ""
+        self.current_wallpaper = ""
+        self.initial_wallpaper = ""
         self.default_theme = ""
         self.variant_filter = "all"
         self.favorites_only = False
@@ -401,10 +432,15 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self._active_request_id = 0
         self._latest_requested_theme = None
         self._queued_theme = None
+        self._queued_wallpaper = None
         self._queued_close_on_success = False
         self._close_when_idle = False
         self._destroyed = False
         self._apply_lock = threading.Lock()
+        self._suspend_wallpaper_change = False
+        self._wallpaper_choices = []
+        self.preview_mode = "workspace"
+        self.preview_mode_buttons = {}
 
         self._install_css()
 
@@ -512,6 +548,19 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         preview_title.add_css_class("preview-title")
         preview_panel.append(preview_title)
 
+        preview_mode_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        preview_mode_box.add_css_class("preview-actions")
+        preview_mode_box.add_css_class("preview-mode-switcher")
+        preview_panel.append(preview_mode_box)
+
+        for mode_key, label in (("workspace", "Workspace"), ("wallpaper", "Wallpaper")):
+            button = Gtk.ToggleButton(label=label)
+            button.add_css_class("preview-mode-button")
+            button.set_active(mode_key == self.preview_mode)
+            button.connect("toggled", self.on_preview_mode_toggled, mode_key)
+            self.preview_mode_buttons[mode_key] = button
+            preview_mode_box.append(button)
+
         preview_frame = Gtk.Frame()
         preview_frame.add_css_class("preview-frame")
         preview_panel.append(preview_frame)
@@ -536,6 +585,24 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.preview_badges.set_halign(Gtk.Align.START)
         self.preview_badges.set_hexpand(True)
         preview_panel.append(self.preview_badges)
+
+        self.wallpaper_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.wallpaper_panel.add_css_class("preview-actions")
+        self.wallpaper_panel.add_css_class("wallpaper-panel")
+        wallpaper_title = Gtk.Label(xalign=0)
+        wallpaper_title.set_text("Wallpaper")
+        self.wallpaper_panel.append(wallpaper_title)
+        wallpaper_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.wallpaper_dropdown = Gtk.DropDown()
+        self.wallpaper_dropdown.add_css_class("wallpaper-dropdown")
+        self.wallpaper_dropdown.connect("notify::selected", self.on_wallpaper_selected)
+        wallpaper_controls.append(self.wallpaper_dropdown)
+        self.wallpaper_randomize_button = Gtk.Button(label="Randomize")
+        self.wallpaper_randomize_button.add_css_class("wallpaper-randomize")
+        self.wallpaper_randomize_button.connect("clicked", self.on_wallpaper_randomize_clicked)
+        wallpaper_controls.append(self.wallpaper_randomize_button)
+        self.wallpaper_panel.append(wallpaper_controls)
+        preview_panel.append(self.wallpaper_panel)
 
         preview_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         preview_actions.add_css_class("preview-actions")
@@ -610,6 +677,11 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         themes = [line for line in run_cli("list").stdout.splitlines() if line]
         self.current_theme = run_cli("current", check=False).stdout.strip()
         self.initial_theme = self.current_theme
+        self.current_wallpaper = (
+            self.metadata_for(self.current_theme).get("current_wallpaper")
+            or self.metadata_for(self.current_theme).get("selected_wallpaper", "")
+        )
+        self.initial_wallpaper = self.current_wallpaper
         self.default_theme = run_cli("default", check=False).stdout.strip()
 
         for theme in themes:
@@ -658,7 +730,44 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             "description": "",
             "badges": [],
             "preview_path": "",
+            "wallpapers": [],
+            "selected_wallpaper": "",
+            "current_wallpaper": "",
         })
+
+    def _preview_sources_for(self, theme, metadata):
+        return {
+            "workspace": metadata.get("preview_path", ""),
+            "wallpaper": self._selected_wallpaper_path_for(theme, metadata),
+        }
+
+    def _sync_preview_mode(self, theme, metadata):
+        sources = self._preview_sources_for(theme, metadata)
+        if sources.get(self.preview_mode):
+            chosen_mode = self.preview_mode
+        elif sources.get("workspace"):
+            chosen_mode = "workspace"
+        elif sources.get("wallpaper"):
+            chosen_mode = "wallpaper"
+        else:
+            chosen_mode = "workspace"
+
+        self.preview_mode = chosen_mode
+
+        for mode_key, button in self.preview_mode_buttons.items():
+            has_source = bool(sources.get(mode_key))
+            button.set_sensitive(has_source)
+            if button.get_active() != (mode_key == chosen_mode):
+                button.set_active(mode_key == chosen_mode)
+
+        return sources.get(chosen_mode, "")
+
+    def _clear_preview_mode(self):
+        self.preview_mode = "workspace"
+        for mode_key, button in self.preview_mode_buttons.items():
+            button.set_sensitive(False)
+            if button.get_active() != (mode_key == self.preview_mode):
+                button.set_active(mode_key == self.preview_mode)
 
     def refresh_preview(self):
         theme = self.selected_theme() or self.current_theme or self.default_theme
@@ -670,6 +779,8 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             self.preview_picture.set_paintable(None)
             self.preview_favorite_button.set_label("Add Favorite")
             self.preview_default_button.set_sensitive(False)
+            self._clear_preview_mode()
+            self._update_wallpaper_selector(None, None)
             return
 
         metadata = self.metadata_for(theme)
@@ -688,7 +799,9 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.preview_description_label.set_text(description)
 
         self._set_preview_badges(metadata)
-        self._set_preview_image(metadata.get("preview_path", ""))
+        preview_path = self._sync_preview_mode(theme, metadata)
+        self._set_preview_image(preview_path)
+        self._update_wallpaper_selector(theme, metadata)
         self.preview_favorite_button.set_label(
             "Remove Favorite" if metadata.get("favorite") else "Add Favorite"
         )
@@ -728,6 +841,58 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             next_child = child.get_next_sibling()
             self.preview_badges.remove(child)
             child = next_child
+
+    def _selected_wallpaper_for(self, theme, metadata=None):
+        if not theme:
+            return ""
+        if metadata is None:
+            metadata = self.metadata_for(theme)
+        wallpaper = metadata.get("selected_wallpaper") or ""
+        if theme == self.current_theme and self.current_wallpaper:
+            wallpaper = self.current_wallpaper
+        if not wallpaper:
+            wallpapers = metadata.get("wallpapers", [])
+            if wallpapers:
+                wallpaper = wallpapers[0].get("name", "")
+        return wallpaper
+
+    def _selected_wallpaper_path_for(self, theme, metadata=None):
+        selected_wallpaper = self._selected_wallpaper_for(theme, metadata)
+        if metadata is None:
+            metadata = self.metadata_for(theme)
+        for item in metadata.get("wallpapers", []):
+            if item.get("name") == selected_wallpaper:
+                return item.get("path", "")
+        return ""
+
+    def _update_wallpaper_selector(self, theme, metadata):
+        self._suspend_wallpaper_change = True
+        try:
+            if not theme or metadata is None:
+                self._wallpaper_choices = []
+                self.wallpaper_dropdown.set_model(Gtk.StringList.new([]))
+                self.wallpaper_dropdown.set_selected(Gtk.INVALID_LIST_POSITION)
+                self.wallpaper_panel.set_visible(False)
+                return
+
+            wallpapers = metadata.get("wallpapers", [])
+            self._wallpaper_choices = [item.get("name", "") for item in wallpapers if item.get("name")]
+            labels = [
+                item.get("label") or wallpaper_label(item.get("name", ""))
+                for item in wallpapers
+                if item.get("name")
+            ]
+            self.wallpaper_dropdown.set_model(Gtk.StringList.new(labels))
+
+            selected_wallpaper = self._selected_wallpaper_for(theme, metadata)
+            try:
+                index = self._wallpaper_choices.index(selected_wallpaper)
+            except ValueError:
+                index = 0 if self._wallpaper_choices else Gtk.INVALID_LIST_POSITION
+            self.wallpaper_dropdown.set_selected(index)
+            self.wallpaper_panel.set_visible(len(self._wallpaper_choices) > 1)
+        finally:
+            self._suspend_wallpaper_change = False
 
     def refresh_rows(self):
         for row in self.rows:
@@ -812,6 +977,22 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.favorites_only = button.get_active()
         self.apply_filters()
 
+    def on_preview_mode_toggled(self, button, mode_key):
+        if not button.get_active():
+            if self.preview_mode == mode_key:
+                button.set_active(True)
+            return
+
+        for other_key, other_button in self.preview_mode_buttons.items():
+            if other_key != mode_key and other_button.get_active():
+                other_button.set_active(False)
+
+        if self.preview_mode == mode_key:
+            return
+
+        self.preview_mode = mode_key
+        self.refresh_preview()
+
     def on_search_changed(self, entry):
         if self._search_source_id:
             GLib.source_remove(self._search_source_id)
@@ -838,10 +1019,39 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         if theme is None or theme == self.current_theme:
             return
 
-        self.schedule_preview(theme)
+        self.schedule_preview(theme, wallpaper=self._selected_wallpaper_for(theme))
 
     def on_row_activated(self, _list_box, row):
-        self.schedule_preview(row.theme, immediate=True)
+        self.schedule_preview(row.theme, wallpaper=self._selected_wallpaper_for(row.theme), immediate=True)
+
+    def on_wallpaper_selected(self, _dropdown, _param):
+        if self._suspend_wallpaper_change or self.pending_theme is not None:
+            return
+
+        theme = self.selected_theme()
+        if theme is None:
+            return
+
+        selected = self.wallpaper_dropdown.get_selected()
+        if selected == Gtk.INVALID_LIST_POSITION or selected >= len(self._wallpaper_choices):
+            return
+
+        wallpaper = self._wallpaper_choices[selected]
+        current_wallpaper = self._selected_wallpaper_for(theme)
+        if wallpaper == current_wallpaper and theme == self.current_theme:
+            return
+
+        self.schedule_preview(theme, wallpaper=wallpaper, immediate=True)
+
+    def on_wallpaper_randomize_clicked(self, _button):
+        if self.pending_theme is not None:
+            return
+
+        theme = self.selected_theme()
+        if theme is None:
+            return
+
+        self.schedule_preview(theme, wallpaper=RANDOM_WALLPAPER_TOKEN, immediate=True)
 
     def on_apply_clicked(self, _button):
         theme = self.selected_theme()
@@ -852,12 +1062,13 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         if self.pending_theme is not None and theme == self.pending_theme:
             self.close()
             return
-        if theme == self.current_theme:
+        wallpaper = self._selected_wallpaper_for(theme)
+        if theme == self.current_theme and wallpaper == self.current_wallpaper:
             self.close()
             return
-        self.schedule_preview(theme, immediate=True, close_on_success=True)
+        self.schedule_preview(theme, wallpaper=wallpaper, immediate=True, close_on_success=True)
 
-    def schedule_preview(self, theme, immediate=False, close_on_success=False):
+    def schedule_preview(self, theme, wallpaper=None, immediate=False, close_on_success=False):
         if self._preview_source_id:
             GLib.source_remove(self._preview_source_id)
             self._preview_source_id = 0
@@ -865,6 +1076,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         if self.pending_theme is not None:
             queued_theme_was = self._queued_theme
             self._queued_theme = theme
+            self._queued_wallpaper = wallpaper
             self._queued_close_on_success = (
                 close_on_success
                 if queued_theme_was != theme
@@ -877,23 +1089,24 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
 
         self._latest_requested_theme = theme
         if immediate:
-            self.apply_theme_async(theme, close_on_success=close_on_success)
+            self.apply_theme_async(theme, wallpaper, close_on_success=close_on_success)
             return
 
         self._preview_source_id = GLib.timeout_add(
             PREVIEW_DELAY_MS,
             self._run_scheduled_preview,
             theme,
+            wallpaper,
         )
 
-    def _run_scheduled_preview(self, theme):
+    def _run_scheduled_preview(self, theme, wallpaper):
         self._preview_source_id = 0
         if self.pending_theme is None and theme == self._latest_requested_theme:
-            self.apply_theme_async(theme, close_on_success=False)
+            self.apply_theme_async(theme, wallpaper, close_on_success=False)
         return False
 
-    def apply_theme_async(self, theme, close_on_success):
-        if theme == self.current_theme and self.pending_theme is None:
+    def apply_theme_async(self, theme, wallpaper, close_on_success):
+        if theme == self.current_theme and wallpaper == self.current_wallpaper and self.pending_theme is None:
             if close_on_success:
                 self.close()
             return
@@ -903,25 +1116,31 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self._active_request_id = request_id
         self.pending_theme = theme
         self._queued_theme = None
+        self._queued_wallpaper = None
         self._queued_close_on_success = False
         self.set_status(f"Applying {display_name(theme)}...", busy=True)
         self.refresh_rows()
 
         worker = threading.Thread(
             target=self._apply_theme_worker,
-            args=(request_id, theme, close_on_success),
+            args=(request_id, theme, wallpaper, close_on_success),
             daemon=True,
         )
         worker.start()
 
-    def _run_theme_apply(self, theme):
-        run_cli("apply", theme, extra_env=APPLY_ENV)
+    def _run_theme_apply(self, theme, wallpaper=None):
+        args = ["apply", theme]
+        if wallpaper == RANDOM_WALLPAPER_TOKEN:
+            args.append("--random-wallpaper")
+        elif wallpaper:
+            args.extend(["--wallpaper", wallpaper])
+        run_cli(*args, extra_env=APPLY_ENV)
 
-    def _apply_theme_worker(self, request_id, theme, close_on_success):
+    def _apply_theme_worker(self, request_id, theme, wallpaper, close_on_success):
         error = None
         try:
             with self._apply_lock:
-                self._run_theme_apply(theme)
+                self._run_theme_apply(theme, wallpaper)
         except RuntimeError as exc:
             error = str(exc)
 
@@ -929,11 +1148,12 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             self._finish_apply_theme,
             request_id,
             theme,
+            wallpaper,
             close_on_success,
             error,
         )
 
-    def _finish_apply_theme(self, request_id, theme, close_on_success, error):
+    def _finish_apply_theme(self, request_id, theme, wallpaper, close_on_success, error):
         if self._destroyed:
             return False
         if request_id != self._active_request_id:
@@ -944,7 +1164,9 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.pending_theme = None
 
         if error is None:
+            self.reload_metadata()
             self.current_theme = theme
+            self.current_wallpaper = self.metadata_for(theme).get("selected_wallpaper", "") or (wallpaper or "")
             self.set_status(f"Previewing {display_name(theme)}", busy=False)
             self.refresh_rows()
             if close_on_success:
@@ -955,13 +1177,18 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             if pending_was == theme:
                 self.refresh_rows()
 
-        if self._queued_theme and self._queued_theme != self.current_theme:
+        if self._queued_theme and (
+            self._queued_theme != self.current_theme or self._queued_wallpaper != self.current_wallpaper
+        ):
             queued_theme = self._queued_theme
+            queued_wallpaper = self._queued_wallpaper
             queued_close_on_success = self._queued_close_on_success
             self._queued_theme = None
+            self._queued_wallpaper = None
             self._queued_close_on_success = False
             self.apply_theme_async(
                 queued_theme,
+                queued_wallpaper,
                 close_on_success=queued_close_on_success,
             )
             return False
@@ -1006,16 +1233,21 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         if self.pending_theme is not None:
             self._close_when_idle = True
             self._queued_theme = self.initial_theme or self.current_theme or self.pending_theme
+            self._queued_wallpaper = self.initial_wallpaper or None
             self._queued_close_on_success = False
             self.set_status("Finishing preview before closing...", busy=True)
             self.refresh_rows()
             return True
 
-        if self.initial_theme and self.current_theme != self.initial_theme:
+        if self.initial_theme and (
+            self.current_theme != self.initial_theme or self.current_wallpaper != self.initial_wallpaper
+        ):
             self._reverting = True
             try:
-                self._run_theme_apply(self.initial_theme)
+                self._run_theme_apply(self.initial_theme, self.initial_wallpaper or None)
+                self.reload_metadata()
                 self.current_theme = self.initial_theme
+                self.current_wallpaper = self.initial_wallpaper
                 self.refresh_rows()
             except RuntimeError:
                 pass
@@ -1035,6 +1267,8 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.apply_button.set_sensitive(not busy)
         self.preview_favorite_button.set_sensitive(not busy)
         self.preview_default_button.set_sensitive(not busy)
+        self.wallpaper_dropdown.set_sensitive(not busy)
+        self.wallpaper_randomize_button.set_sensitive(not busy)
 
     def show_row_menu(self, row, x, y):
         if self.menu_popover is not None:

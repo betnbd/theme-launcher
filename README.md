@@ -28,6 +28,14 @@ Current target apps:
 
 ## Current Entry Points
 
+For a normal local setup, the usual flow is:
+
+```bash
+theme-launcher gui
+theme-launcher doctor
+theme-launcher apply-default
+```
+
 - CLI: `theme-launcher`
 - GUI launcher: `theme-launcher gui`
 - Desktop sessions open the GTK launcher by default from `theme-launcher choose`
@@ -52,6 +60,9 @@ Current target apps:
 
 - The GTK launcher previews themes as you move through the list and reverts to the starting theme on cancel
 - The GTK launcher shows each theme's catalog screenshot and inferred metadata in a side preview panel
+- The preview panel can switch between a workspace preview image and the selected wallpaper when both are available
+- Themes with multiple wallpapers expose a wallpaper picker in the GTK launcher and remember the last wallpaper selected for each theme
+- The GTK launcher preview panel follows the selected wallpaper, and multi-wallpaper themes also expose a randomize action
 - The GTK launcher can filter the catalog by variant, favorites, and live search terms, and exposes quick favorite/default actions in the preview panel
 - Launcher-driven Ghostty theme changes reload the running terminal and suppress the config reload toast
 - Plain CLI applies update Ghostty config for new windows and sessions without forcing a live reload unless `THEME_LAUNCHER_RELOAD_GHOSTTY=1` is set
