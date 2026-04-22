@@ -5,10 +5,17 @@ set -euo pipefail
 THEME_LAUNCHER_HOME="${THEME_LAUNCHER_HOME:-$HOME/.local/share/theme-launcher}"
 THEME_LAUNCHER_VENDOR_ROOT="$THEME_LAUNCHER_HOME/vendor"
 THEME_LAUNCHER_VENDOR_CATALOG="$THEME_LAUNCHER_VENDOR_ROOT/catalog"
-THEME_LAUNCHER_VENDOR_LEGACY="$THEME_LAUNCHER_VENDOR_ROOT/omarchy"
+THEME_LAUNCHER_VENDOR_FALLBACK=""
 THEME_LAUNCHER_VENDOR="$THEME_LAUNCHER_VENDOR_CATALOG"
-if [[ ! -d "$THEME_LAUNCHER_VENDOR_CATALOG" && -d "$THEME_LAUNCHER_VENDOR_LEGACY" ]]; then
-  THEME_LAUNCHER_VENDOR="$THEME_LAUNCHER_VENDOR_LEGACY"
+if [[ ! -d "$THEME_LAUNCHER_VENDOR_CATALOG" && -d "$THEME_LAUNCHER_VENDOR_ROOT" ]]; then
+  for candidate in "$THEME_LAUNCHER_VENDOR_ROOT"/*; do
+    [[ -d "$candidate" ]] || continue
+    [[ "$(basename "$candidate")" == "catalog" ]] && continue
+    [[ -d "$candidate/themes" || -d "$candidate/default" ]] || continue
+    THEME_LAUNCHER_VENDOR_FALLBACK="$candidate"
+    THEME_LAUNCHER_VENDOR="$candidate"
+    break
+  done
 fi
 THEME_LAUNCHER_THEMES_DIR="$THEME_LAUNCHER_VENDOR/themes"
 THEME_LAUNCHER_CUSTOM_THEMES_DIR="$THEME_LAUNCHER_HOME/themes"
@@ -784,8 +791,8 @@ theme_launcher_doctor() {
   theme_launcher_check_path_write "launcher-home" "$THEME_LAUNCHER_HOME"
   theme_launcher_check_path_write "state-dir" "$THEME_LAUNCHER_STATE_DIR"
 
-  if [[ "$THEME_LAUNCHER_VENDOR" == "$THEME_LAUNCHER_VENDOR_LEGACY" ]]; then
-    theme_launcher_doctor_warn "theme-catalog-path" "using legacy vendor path: $THEME_LAUNCHER_VENDOR_LEGACY"
+  if [[ -n "$THEME_LAUNCHER_VENDOR_FALLBACK" ]]; then
+    theme_launcher_doctor_warn "theme-catalog-path" "using fallback vendor path: $THEME_LAUNCHER_VENDOR_FALLBACK"
   fi
 
   if [[ -d "$THEME_LAUNCHER_THEMES_DIR" ]]; then
