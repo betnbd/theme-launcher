@@ -68,10 +68,12 @@ theme-launcher apply-default
 - Plain CLI applies update Ghostty config for new windows and sessions without forcing a live reload unless `THEME_LAUNCHER_RELOAD_GHOSTTY=1` is set
 - Running tmux sessions reload the generated theme automatically after apply
 - GNOME Shell panel theming now applies during normal theme changes when the `user-theme` extension is available; Chromium integration still stays opt-in unless `THEME_LAUNCHER_ENABLE_CHROMIUM=1` is set or `--only chromium` is used
-- `theme-launcher doctor` checks dependencies, write access, theme asset shape, stored theme references, and common GNOME or Chromium integration gaps before apply time
+- `theme-launcher doctor` checks dependencies, write access, theme asset shape, stored theme references, GTK GUI bindings, and common GNOME or Chromium integration gaps before apply time
+- On newer Ubuntu / GNOME builds where Ubuntu Dock no longer exposes the old tweak schema, dock color tweaks are skipped cleanly instead of throwing apply-time warnings
 - CLI apply flows support one-shot `--only` and `--skip` target filters; GUI previews still apply the full theme set
 - Theme metadata is read from optional `theme.json` files and falls back to inferred values when the catalog only provides theme assets
 - Custom theme overlays can live in `~/.local/share/theme-launcher/themes` and override synced catalog themes of the same name
+- Imported extra themes in the custom catalog have had upstream Omarchy branding stripped from local metadata and branded wallpapers; themes left without images after that cleanup were removed from the local custom catalog
 - The launcher supports a small favorites list stored in local state and surfaced in the GTK launcher
 
 ## Theme Metadata

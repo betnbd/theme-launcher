@@ -86,6 +86,60 @@ theme_launcher_require() {
   command -v "$1" >/dev/null 2>&1 || theme_launcher_fail "missing required command: $1"
 }
 
+theme_launcher_in_graphical_session() {
+  [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]
+}
+
+theme_launcher_in_gnome_session() {
+  local current_desktop="${XDG_CURRENT_DESKTOP:-}"
+  local desktop_session="${DESKTOP_SESSION:-}"
+
+  [[ "$current_desktop" == *GNOME* ]] && return 0
+  [[ "$current_desktop" == *ubuntu* ]] && return 0
+  [[ "$desktop_session" == "gnome" || "$desktop_session" == "ubuntu" ]]
+}
+
+theme_launcher_gsettings_schema_exists() {
+  local schema="$1"
+
+  command -v gsettings >/dev/null 2>&1 || return 1
+  gsettings list-schemas 2>/dev/null | grep -Fxq "$schema" && return 0
+  gsettings list-relocatable-schemas 2>/dev/null | grep -Fxq "$schema"
+}
+
+theme_launcher_ubuntu_dock_schema() {
+  local schema
+
+  for schema in \
+    org.gnome.shell.extensions.dash-to-dock \
+    org.gnome.shell.extensions.ubuntu-dock; do
+    if theme_launcher_gsettings_schema_exists "$schema"; then
+      printf "%s\n" "$schema"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+theme_launcher_gnome_shell_major_version() {
+  local version
+
+  command -v gnome-shell >/dev/null 2>&1 || return 1
+  version="$(gnome-shell --version 2>/dev/null | sed -En 's/^GNOME Shell ([0-9]+)(\..*)?$/\1/p')"
+  [[ -n "$version" ]] || return 1
+  printf "%s\n" "$version"
+}
+
+theme_launcher_python_gtk_available() {
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 - <<'PY' >/dev/null 2>&1
+import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk  # noqa: F401
+PY
+}
+
 theme_launcher_slugify() {
   printf "%s" "$1" |
     tr '[:upper:]' '[:lower:]' |
@@ -760,9 +814,14 @@ theme_launcher_doctor() {
   local previous_theme
   local default_theme
   local desktop_session=0
+  local gnome_session=0
   local user_theme_extension="user-theme@gnome-shell-extensions.gcampax.github.com"
   local user_ext_dir="$HOME/.local/share/gnome-shell/extensions/$user_theme_extension"
   local system_ext_dir="/usr/share/gnome-shell/extensions/$user_theme_extension"
+  local user_theme_metadata=""
+  local shell_major=""
+  local user_theme_supported=0
+  local ubuntu_dock_schema=""
   local has_chromium=0
   local chromium_policy_dirs=(
     "/etc/chromium/policies/managed"
@@ -786,6 +845,7 @@ theme_launcher_doctor() {
   theme_launcher_check_required_command "ln"
   theme_launcher_check_required_command "mktemp"
   theme_launcher_check_required_command "mv"
+  theme_launcher_check_required_command "python3"
   theme_launcher_check_required_command "sed"
 
   theme_launcher_check_path_write "launcher-home" "$THEME_LAUNCHER_HOME"
@@ -849,22 +909,34 @@ theme_launcher_doctor() {
     fi
   fi
 
-  if [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+  if theme_launcher_in_graphical_session; then
     desktop_session=1
   fi
 
+  if theme_launcher_in_gnome_session; then
+    gnome_session=1
+  fi
+
   if command -v gsettings >/dev/null 2>&1; then
-    if [[ "$desktop_session" -eq 1 ]]; then
+    if [[ "$desktop_session" -eq 1 && "$gnome_session" -eq 1 ]]; then
       if gsettings get org.gnome.desktop.interface color-scheme >/dev/null 2>&1; then
         theme_launcher_doctor_pass "gsettings" "GNOME settings writable in this session"
       else
         theme_launcher_doctor_warn "gsettings" "installed, but GNOME settings are not accessible right now"
       fi
+    elif [[ "$desktop_session" -eq 1 ]]; then
+      theme_launcher_doctor_warn "gsettings" "graphical session detected, but it does not look like GNOME"
     else
       theme_launcher_doctor_warn "gsettings" "no graphical GNOME session detected"
     fi
   else
     theme_launcher_doctor_warn "gsettings" "GNOME integration will be skipped because gsettings is missing"
+  fi
+
+  if theme_launcher_python_gtk_available; then
+    theme_launcher_doctor_pass "gtk-gui" "python3-gi with GTK 4 is available"
+  else
+    theme_launcher_doctor_warn "gtk-gui" "theme-launcher gui needs python3-gi and GTK 4 bindings"
   fi
 
   if [[ -d "$user_ext_dir" || -d "$system_ext_dir" ]]; then
@@ -873,7 +945,32 @@ theme_launcher_doctor() {
     theme_launcher_doctor_warn "gnome-shell:user-theme" "missing extension files; GNOME Shell top bar theming will not apply"
   fi
 
+  user_theme_metadata="$user_ext_dir/metadata.json"
+  if [[ ! -f "$user_theme_metadata" ]]; then
+    user_theme_metadata="$system_ext_dir/metadata.json"
+  fi
+  if [[ -f "$user_theme_metadata" ]] && shell_major="$(theme_launcher_gnome_shell_major_version)"; then
+    if jq -e --arg shell_major "$shell_major" '
+      .["shell-version"] // []
+      | map(tostring | split(".")[0])
+      | index($shell_major)
+    ' "$user_theme_metadata" >/dev/null 2>&1; then
+      user_theme_supported=1
+    fi
+    if [[ "$user_theme_supported" -eq 1 ]]; then
+      theme_launcher_doctor_pass "gnome-shell:user-theme-version" "declares GNOME Shell $shell_major support"
+    else
+      theme_launcher_doctor_warn "gnome-shell:user-theme-version" "extension metadata does not list GNOME Shell $shell_major"
+    fi
+  fi
+
   theme_launcher_doctor_pass "gnome-shell" "panel theming runs during normal applies when the user-theme extension is available"
+
+  if ubuntu_dock_schema="$(theme_launcher_ubuntu_dock_schema)"; then
+    theme_launcher_doctor_pass "ubuntu-dock" "settings schema available: $ubuntu_dock_schema"
+  else
+    theme_launcher_doctor_warn "ubuntu-dock" "dock settings schema is unavailable on this GNOME build; dock color tweaks will be skipped"
+  fi
 
   if [[ -x "$HOME/.local/bin/ghostty" || -x "/snap/bin/ghostty" || -x "$(command -v ghostty 2>/dev/null || true)" ]]; then
     theme_launcher_doctor_pass "ghostty" "$(command -v ghostty 2>/dev/null || printf "installed")"
@@ -1646,11 +1743,16 @@ theme_launcher_apply_gnome() {
 
 theme_launcher_apply_ubuntu_dock() {
   local colors_file="$THEME_LAUNCHER_CURRENT_DIR/colors.toml"
+  local dock_schema
   local background
   local accent
   local opacity
 
   command -v gsettings >/dev/null 2>&1 || return 0
+  dock_schema="$(theme_launcher_ubuntu_dock_schema || true)"
+  if [[ -z "$dock_schema" ]]; then
+    return 0
+  fi
   [[ -f "$colors_file" ]] || return 0
 
   background="$(theme_launcher_color_value "$colors_file" background)"
@@ -1663,16 +1765,16 @@ theme_launcher_apply_ubuntu_dock() {
     opacity="0.85"
   fi
 
-  theme_launcher_try_gsettings org.gnome.shell.extensions.dash-to-dock custom-background-color "true" || theme_launcher_warn "failed to enable Ubuntu Dock custom background"
-  theme_launcher_try_gsettings org.gnome.shell.extensions.dash-to-dock background-color "$background" || theme_launcher_warn "failed to set Ubuntu Dock background color"
-  theme_launcher_try_gsettings org.gnome.shell.extensions.dash-to-dock background-opacity "$opacity" || theme_launcher_warn "failed to set Ubuntu Dock background opacity"
-  theme_launcher_try_gsettings org.gnome.shell.extensions.dash-to-dock transparency-mode "'FIXED'" || theme_launcher_warn "failed to set Ubuntu Dock transparency mode"
-  theme_launcher_try_gsettings org.gnome.shell.extensions.dash-to-dock apply-glossy-effect "false" || theme_launcher_warn "failed to disable Ubuntu Dock glossy effect"
+  theme_launcher_try_gsettings "$dock_schema" custom-background-color "true" || theme_launcher_warn "failed to enable Ubuntu Dock custom background"
+  theme_launcher_try_gsettings "$dock_schema" background-color "$background" || theme_launcher_warn "failed to set Ubuntu Dock background color"
+  theme_launcher_try_gsettings "$dock_schema" background-opacity "$opacity" || theme_launcher_warn "failed to set Ubuntu Dock background opacity"
+  theme_launcher_try_gsettings "$dock_schema" transparency-mode "'FIXED'" || theme_launcher_warn "failed to set Ubuntu Dock transparency mode"
+  theme_launcher_try_gsettings "$dock_schema" apply-glossy-effect "false" || theme_launcher_warn "failed to disable Ubuntu Dock glossy effect"
 
   if [[ -n "$accent" ]]; then
-    theme_launcher_try_gsettings org.gnome.shell.extensions.dash-to-dock custom-theme-customize-running-dots "true" || theme_launcher_warn "failed to enable Ubuntu Dock running indicator customization"
-    theme_launcher_try_gsettings org.gnome.shell.extensions.dash-to-dock custom-theme-running-dots-color "$accent" || theme_launcher_warn "failed to set Ubuntu Dock running indicator color"
-    theme_launcher_try_gsettings org.gnome.shell.extensions.dash-to-dock custom-theme-running-dots-border-color "$accent" || theme_launcher_warn "failed to set Ubuntu Dock running indicator border color"
+    theme_launcher_try_gsettings "$dock_schema" custom-theme-customize-running-dots "true" || theme_launcher_warn "failed to enable Ubuntu Dock running indicator customization"
+    theme_launcher_try_gsettings "$dock_schema" custom-theme-running-dots-color "$accent" || theme_launcher_warn "failed to set Ubuntu Dock running indicator color"
+    theme_launcher_try_gsettings "$dock_schema" custom-theme-running-dots-border-color "$accent" || theme_launcher_warn "failed to set Ubuntu Dock running indicator border color"
   fi
 }
 
@@ -1713,10 +1815,16 @@ theme_launcher_apply_gnome_shell() {
 
   # Add to enabled-extensions so it loads on next login if not already running
   local current_enabled
+  local new_list
   current_enabled="$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || true)"
   if [[ -n "$current_enabled" ]] && ! printf "%s" "$current_enabled" | grep -Fq "$user_theme_extension"; then
-    local new_list
-    new_list="$(printf "%s" "$current_enabled" | sed "s/]$/, '$user_theme_extension']/")"
+    current_enabled="${current_enabled#@as }"
+    if [[ "$current_enabled" == "[]" ]]; then
+      new_list="['$user_theme_extension']"
+    else
+      new_list="${current_enabled%]}"
+      new_list="${new_list}, '$user_theme_extension']"
+    fi
     gsettings set org.gnome.shell enabled-extensions "$new_list" 2>/dev/null || true
   fi
 
