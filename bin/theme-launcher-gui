@@ -9,6 +9,7 @@ from pathlib import Path
 
 import gi
 
+gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk
 
@@ -312,6 +313,84 @@ def wallpaper_label(name):
     return (cleaned or stem).title()
 
 
+def theme_variant_label(metadata):
+    variant = (metadata.get("variant") or "dark").strip().lower()
+    if variant == "light":
+        return "Light Theme"
+    return "Dark Theme"
+
+
+def infer_theme_vibe(theme, metadata):
+    slug = (theme or "").strip().lower()
+    text_parts = [
+        slug.replace("-", " "),
+        str(metadata.get("name") or "").lower(),
+        str(metadata.get("description") or "").lower(),
+        " ".join(str(tag).lower() for tag in metadata.get("tags", [])),
+    ]
+    haystack = " ".join(part for part in text_parts if part)
+
+    keyword_map = [
+        ("light", "Clean airy minimalism"),
+        ("snow", "Clean airy minimalism"),
+        ("white", "Clean airy minimalism"),
+        ("latte", "Soft warm minimalism"),
+        ("rose", "Soft warm romance"),
+        ("pink", "Soft neon romance"),
+        ("sakura", "Soft floral calm"),
+        ("gold", "Warm luxe glow"),
+        ("amber", "Warm amber glow"),
+        ("sunset", "Warm cinematic dusk"),
+        ("solar", "Warm retro clarity"),
+        ("forest", "Earthy woodland calm"),
+        ("jade", "Earthy polished calm"),
+        ("garden", "Earthy natural calm"),
+        ("green", "Earthy natural calm"),
+        ("ever", "Earthy natural calm"),
+        ("dracula", "Moody gothic contrast"),
+        ("midnight", "Moody midnight contrast"),
+        ("night", "Moody midnight contrast"),
+        ("dark", "Moody focused contrast"),
+        ("black", "Moody inky minimalism"),
+        ("void", "Moody inky minimalism"),
+        ("mono", "Monochrome crisp minimalism"),
+        ("catppuccin", "Soft creamy contrast"),
+        ("gruv", "Earthy retro contrast"),
+        ("nord", "Cool arctic calm"),
+        ("frost", "Cool arctic calm"),
+        ("ice", "Cool arctic calm"),
+        ("blue", "Cool electric clarity"),
+        ("azure", "Cool electric clarity"),
+        ("cobalt", "Cool electric clarity"),
+        ("tokyo", "Neon city glow"),
+        ("cyber", "Neon cyberpunk energy"),
+        ("punk", "Neon cyberpunk energy"),
+        ("synth", "Neon retro futurism"),
+        ("retro", "Neon retro futurism"),
+        ("wave", "Neon retro futurism"),
+        ("space", "Cosmic retro adventure"),
+        ("mars", "Cosmic red drama"),
+        ("aether", "Ethereal luminous haze"),
+        ("ethereal", "Ethereal luminous haze"),
+        ("ghost", "Ethereal pastel haze"),
+        ("pastel", "Ethereal pastel haze"),
+        ("vapor", "Dreamy vapor haze"),
+        ("aura", "Dreamy luminous haze"),
+    ]
+
+    for keyword, vibe in keyword_map:
+        if keyword in haystack:
+            return vibe
+
+    if (metadata.get("variant") or "dark").strip().lower() == "light":
+        return "Clean balanced clarity"
+    return "Moody focused contrast"
+
+
+def theme_row_summary(theme, metadata):
+    return f"{theme_variant_label(metadata)} - {infer_theme_vibe(theme, metadata)}"
+
+
 class ThemeRow(Gtk.ListBoxRow):
     def __init__(self, theme, window):
         super().__init__()
@@ -355,7 +434,6 @@ class ThemeRow(Gtk.ListBoxRow):
         self.remove_css_class("current")
         self.remove_css_class("pending")
         self._clear_badges()
-        is_selected = self.window.selected_theme() == self.theme
         metadata = self.window.metadata_for(self.theme)
 
         if self.theme == self.window.current_theme:
@@ -370,20 +448,7 @@ class ThemeRow(Gtk.ListBoxRow):
         if metadata.get("favorite"):
             self._add_badge("Favorite", "default-badge")
 
-        if self.theme == self.window.current_theme:
-            self.meta_label.set_text("Live on the desktop now")
-        elif self.theme == self.window.default_theme:
-            self.meta_label.set_text("Default theme")
-        elif self.theme == self.window.pending_theme:
-            self.meta_label.set_text("Applying preview")
-        elif metadata.get("description"):
-            self.meta_label.set_text(metadata["description"])
-        elif metadata.get("variant"):
-            self.meta_label.set_text(f"{metadata['variant'].capitalize()} theme")
-        elif is_selected:
-            self.meta_label.set_text("Ready to preview")
-        else:
-            self.meta_label.set_text("")
+        self.meta_label.set_text(theme_row_summary(self.theme, metadata))
 
         self.meta_label.set_visible(bool(self.meta_label.get_text()))
 
@@ -786,7 +851,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         metadata = self.metadata_for(theme)
         self.preview_name_label.set_text(metadata.get("name") or display_name(theme))
 
-        meta_parts = [metadata.get("variant", "dark").capitalize()]
+        meta_parts = [theme_row_summary(theme, metadata)]
         if theme == self.current_theme:
             meta_parts.append("Current")
         if theme == self.default_theme:
