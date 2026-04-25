@@ -105,9 +105,6 @@ Thin user wrappers still live in:
 
 The old runtime copies under `~/.local/share/theme-launcher/bin` and `lib` have been archived under `~/.local/share/theme-launcher/archive`.
 
-## Project Docs
-
-
 ## Notes
 
 This is intentionally a personal utility, not a general-purpose product. The project is optimized for one machine, fast iteration, and practical theme coverage rather than broad portability.
