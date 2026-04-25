@@ -1096,6 +1096,37 @@ theme_launcher_color_value() {
   ' "$colors_file"
 }
 
+theme_launcher_fastfetch_color() {
+  local value="$1"
+  local fallback="$2"
+
+  value="${value//[[:space:]]/}"
+  fallback="${fallback//[[:space:]]/}"
+
+  if [[ "$value" =~ ^#[0-9a-fA-F]{6}$ ]]; then
+    printf "%s\n" "$value"
+    return 0
+  fi
+
+  if [[ "$value" =~ ^[0-9a-fA-F]{6}$ ]]; then
+    printf "#%s\n" "$value"
+    return 0
+  fi
+
+  if [[ "$fallback" =~ ^#[0-9a-fA-F]{6}$ ]]; then
+    printf "%s\n" "$fallback"
+    return 0
+  fi
+
+  printf "#ffffff\n"
+}
+
+theme_launcher_fastfetch_format_color() {
+  local value
+  value="$(theme_launcher_fastfetch_color "$1" "$2")"
+  printf "%s\n" "${value#\#}"
+}
+
 theme_launcher_escape_sed_replacement() {
   printf "%s" "$1" | sed -e 's/[\/&|]/\\&/g'
 }
@@ -1355,6 +1386,16 @@ theme_launcher_generate_fastfetch_config() {
   local danger
   local secondary
   local muted
+  local accent_ff
+  local foreground_ff
+  local success_ff
+  local warning_ff
+  local danger_ff
+  local secondary_ff
+  local muted_ff
+  local accent_format
+  local foreground_format
+  local muted_format
   local theme_name
 
   [[ -f "$colors_file" ]] || return 0
@@ -1368,6 +1409,17 @@ theme_launcher_generate_fastfetch_config() {
   muted="$(theme_launcher_color_value "$colors_file" color8)"
   theme_name="$(theme_launcher_display_name "$theme_slug")"
 
+  accent_ff="$(theme_launcher_fastfetch_color "$accent" "#00aaff")"
+  foreground_ff="$(theme_launcher_fastfetch_color "$foreground" "#ffffff")"
+  success_ff="$(theme_launcher_fastfetch_color "$success" "$accent_ff")"
+  warning_ff="$(theme_launcher_fastfetch_color "$warning" "$accent_ff")"
+  danger_ff="$(theme_launcher_fastfetch_color "$danger" "$accent_ff")"
+  secondary_ff="$(theme_launcher_fastfetch_color "$secondary" "$accent_ff")"
+  muted_ff="$(theme_launcher_fastfetch_color "$muted" "$foreground_ff")"
+  accent_format="$(theme_launcher_fastfetch_format_color "$accent_ff" "#00aaff")"
+  foreground_format="$(theme_launcher_fastfetch_format_color "$foreground_ff" "#ffffff")"
+  muted_format="$(theme_launcher_fastfetch_format_color "$muted_ff" "$foreground_ff")"
+
   cat >"$THEME_LAUNCHER_NEXT_DIR/fastfetch.jsonc" <<EOF
 {
   "\$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
@@ -1378,56 +1430,56 @@ theme_launcher_generate_fastfetch_config() {
     "break",
     {
       "type": "custom",
-      "format": "{#${muted#\#}}theme-launcher"
+      "format": "{#${muted_format}}theme-launcher"
     },
     {
       "type": "custom",
-      "format": "{#${accent#\#}}Theme{#${foreground#\#}}  ${theme_name}"
+      "format": "{#${accent_format}}Theme{#${foreground_format}}  ${theme_name}"
     },
     {
       "type": "os",
       "key": "OS",
-      "keyColor": "${accent}"
+      "keyColor": "${accent_ff}"
     },
     {
       "type": "kernel",
       "key": "Kernel",
-      "keyColor": "${secondary}"
+      "keyColor": "${secondary_ff}"
     },
     {
       "type": "wm",
       "key": "WM",
-      "keyColor": "${secondary}"
+      "keyColor": "${secondary_ff}"
     },
     {
       "type": "de",
       "key": "DE",
-      "keyColor": "${secondary}"
+      "keyColor": "${secondary_ff}"
     },
     {
       "type": "terminal",
       "key": "Terminal",
-      "keyColor": "${success}"
+      "keyColor": "${success_ff}"
     },
     {
       "type": "shell",
       "key": "Shell",
-      "keyColor": "${success}"
+      "keyColor": "${success_ff}"
     },
     {
       "type": "packages",
       "key": "Packages",
-      "keyColor": "${warning}"
+      "keyColor": "${warning_ff}"
     },
     {
       "type": "uptime",
       "key": "Uptime",
-      "keyColor": "${warning}"
+      "keyColor": "${warning_ff}"
     },
     {
       "type": "memory",
       "key": "Memory",
-      "keyColor": "${danger}"
+      "keyColor": "${danger_ff}"
     },
     "break",
     {

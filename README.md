@@ -58,8 +58,8 @@ theme-launcher apply-default
 
 ## Behavior Notes
 
-- The GTK launcher previews themes as you move through the list and reverts to the starting theme on cancel
-- The GTK launcher shows each theme's catalog screenshot and inferred metadata in a side preview panel
+- The GTK launcher shows each theme's catalog screenshot and inferred metadata in a side preview panel by default
+- The GTK launcher has an optional desktop preview switch for live-applies while browsing, and reverts those previews on cancel
 - The preview panel can switch between a workspace preview image and the selected wallpaper when both are available
 - Themes with multiple wallpapers expose a wallpaper picker in the GTK launcher and remember the last wallpaper selected for each theme
 - The GTK launcher preview panel follows the selected wallpaper, and multi-wallpaper themes also expose a randomize action
@@ -70,10 +70,9 @@ theme-launcher apply-default
 - GNOME Shell panel theming now applies during normal theme changes when the `user-theme` extension is available; Chromium integration still stays opt-in unless `THEME_LAUNCHER_ENABLE_CHROMIUM=1` is set or `--only chromium` is used
 - `theme-launcher doctor` checks dependencies, write access, theme asset shape, stored theme references, GTK GUI bindings, and common GNOME or Chromium integration gaps before apply time
 - On newer Ubuntu / GNOME builds where Ubuntu Dock no longer exposes the old tweak schema, dock color tweaks are skipped cleanly instead of throwing apply-time warnings
-- CLI apply flows support one-shot `--only` and `--skip` target filters; GUI previews still apply the full theme set
+- CLI apply flows support one-shot `--only` and `--skip` target filters; GUI Apply and optional desktop previews still apply the full theme set
 - Theme metadata is read from optional `theme.json` files and falls back to inferred values when the catalog only provides theme assets
 - Custom theme overlays can live in `~/.local/share/theme-launcher/themes` and override synced catalog themes of the same name
-- Imported extra themes in the custom catalog have had upstream Omarchy branding stripped from local metadata and branded wallpapers; themes left without images after that cleanup were removed from the local custom catalog
 - The launcher supports a small favorites list stored in local state and surfaced in the GTK launcher
 
 ## Theme Metadata
