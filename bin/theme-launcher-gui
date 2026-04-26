@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 
 import json
 import random
@@ -648,7 +648,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.preview_picture = Gtk.Picture()
         self.preview_picture.add_css_class("preview-image")
         self.preview_picture.set_can_shrink(True)
-        self.preview_picture.set_keep_aspect_ratio(True)
+        self.preview_picture.set_content_fit(Gtk.ContentFit.CONTAIN)
         preview_frame.set_child(self.preview_picture)
 
         self.preview_name_label = Gtk.Label(xalign=0)
@@ -849,7 +849,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             if button.get_active() != (mode_key == self.preview_mode):
                 button.set_active(mode_key == self.preview_mode)
 
-    def refresh_preview(self):
+    def refresh_preview(self, update_wallpaper_selector=True):
         theme = self.selected_theme() or self.current_theme or self.default_theme
         if not theme:
             self.preview_name_label.set_text("No theme selected")
@@ -881,7 +881,8 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self._set_preview_badges(metadata)
         preview_path = self._sync_preview_mode(theme, metadata)
         self._set_preview_image(preview_path)
-        self._update_wallpaper_selector(theme, metadata)
+        if update_wallpaper_selector:
+            self._update_wallpaper_selector(theme, metadata)
         self.preview_favorite_button.set_label(
             "Remove Favorite" if metadata.get("favorite") else "Add Favorite"
         )
@@ -977,6 +978,18 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
                 index = 0 if self._wallpaper_choices else Gtk.INVALID_LIST_POSITION
             self.wallpaper_dropdown.set_selected(index)
             self.wallpaper_panel.set_visible(len(self._wallpaper_choices) > 1)
+        finally:
+            self._suspend_wallpaper_change = False
+
+    def _select_wallpaper_choice(self, wallpaper):
+        try:
+            index = self._wallpaper_choices.index(wallpaper)
+        except ValueError:
+            return
+
+        self._suspend_wallpaper_change = True
+        try:
+            self.wallpaper_dropdown.set_selected(index)
         finally:
             self._suspend_wallpaper_change = False
 
@@ -1158,7 +1171,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             return
 
         self._set_local_wallpaper_choice(theme, wallpaper)
-        self.refresh_preview()
+        self.refresh_preview(update_wallpaper_selector=False)
 
         if self.desktop_preview_enabled:
             self.schedule_preview(theme, wallpaper=wallpaper, immediate=True)
@@ -1178,7 +1191,8 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
 
         wallpaper = random.choice(self._wallpaper_choices)
         self._set_local_wallpaper_choice(theme, wallpaper)
-        self.refresh_preview()
+        self._select_wallpaper_choice(wallpaper)
+        self.refresh_preview(update_wallpaper_selector=False)
 
         if self.desktop_preview_enabled:
             self.schedule_preview(theme, wallpaper=wallpaper, immediate=True)

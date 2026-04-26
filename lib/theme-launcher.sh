@@ -132,12 +132,32 @@ theme_launcher_gnome_shell_major_version() {
 }
 
 theme_launcher_python_gtk_available() {
-  command -v python3 >/dev/null 2>&1 || return 1
-  python3 - <<'PY' >/dev/null 2>&1
+  theme_launcher_python_gtk_command >/dev/null
+}
+
+theme_launcher_python_gtk_command() {
+  local candidate
+  local candidates=()
+
+  if [[ -n "${THEME_LAUNCHER_PYTHON_GTK:-}" ]]; then
+    candidates+=("$THEME_LAUNCHER_PYTHON_GTK")
+  fi
+  candidates+=("/usr/bin/python3" "python3")
+
+  for candidate in "${candidates[@]}"; do
+    command -v "$candidate" >/dev/null 2>&1 || continue
+    if "$candidate" - <<'PY' >/dev/null 2>&1
 import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: F401
 PY
+    then
+      command -v "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 theme_launcher_slugify() {
@@ -596,6 +616,7 @@ theme_launcher_theme_metadata() {
   local wallpaper_json="[]"
   local selected_wallpaper=""
   local current_wallpaper=""
+  local current_theme=""
 
   if [[ -n "$requested_theme" ]]; then
     theme="$(theme_launcher_slugify "$requested_theme")"
@@ -640,7 +661,10 @@ theme_launcher_theme_metadata() {
     selected_wallpaper="$(printf "%s\n" "$wallpaper_json" | jq -r '.[0].name // ""')"
   fi
 
-  current_wallpaper="$(theme_launcher_current_wallpaper)"
+  current_theme="$(theme_launcher_current)"
+  if [[ "$theme" == "$current_theme" ]]; then
+    current_wallpaper="$(theme_launcher_current_wallpaper)"
+  fi
 
   jq -n \
     --arg slug "$theme" \
@@ -1131,22 +1155,32 @@ theme_launcher_escape_sed_replacement() {
   printf "%s" "$1" | sed -e 's/[\/&|]/\\&/g'
 }
 
-theme_launcher_write_managed_block() {
+theme_launcher_write_marked_block() {
   local file="$1"
   local block="$2"
+  local begin="$3"
+  local end="$4"
+  local legacy_begin="${5:-}"
+  local legacy_end="${6:-}"
   local tmp
 
   mkdir -p "$(dirname "$file")"
   [[ -f "$file" ]] || : >"$file"
 
-  if ! grep -Fqx "$THEME_LAUNCHER_MARKER_BEGIN" "$file" 2>/dev/null; then
+  if ! grep -Fqx "$begin" "$file" 2>/dev/null &&
+    { [[ -z "$legacy_begin" ]] || ! grep -Fqx "$legacy_begin" "$file" 2>/dev/null; }; then
     cp -a "$file" "$file.theme-launcher.bak" 2>/dev/null || true
   fi
 
   tmp="$(mktemp)"
-  awk -v begin="$THEME_LAUNCHER_MARKER_BEGIN" -v end="$THEME_LAUNCHER_MARKER_END" '
-    $0 == begin { skip=1; next }
-    $0 == end { skip=0; next }
+  awk \
+    -v begin="$begin" \
+    -v end="$end" \
+    -v legacy_begin="$legacy_begin" \
+    -v legacy_end="$legacy_end" \
+    '
+    $0 == begin || (legacy_begin != "" && $0 == legacy_begin) { skip=1; next }
+    $0 == end || (legacy_end != "" && $0 == legacy_end) { skip=0; next }
     skip != 1 { print }
   ' "$file" >"$tmp"
 
@@ -1160,12 +1194,35 @@ theme_launcher_write_managed_block() {
 
   {
     cat "$tmp"
-    printf "%s\n" "$THEME_LAUNCHER_MARKER_BEGIN"
+    printf "%s\n" "$begin"
     printf "%s\n" "$block"
-    printf "%s\n" "$THEME_LAUNCHER_MARKER_END"
+    printf "%s\n" "$end"
   } >"$file"
 
   rm -f "$tmp"
+}
+
+theme_launcher_write_managed_block() {
+  theme_launcher_write_marked_block \
+    "$1" \
+    "$2" \
+    "$THEME_LAUNCHER_MARKER_BEGIN" \
+    "$THEME_LAUNCHER_MARKER_END"
+}
+
+theme_launcher_write_css_managed_block() {
+  local file="$1"
+  local block="$2"
+  local css_begin="/* theme-launcher begin */"
+  local css_end="/* theme-launcher end */"
+
+  theme_launcher_write_marked_block \
+    "$file" \
+    "$block" \
+    "$css_begin" \
+    "$css_end" \
+    "$THEME_LAUNCHER_MARKER_BEGIN" \
+    "$THEME_LAUNCHER_MARKER_END"
 }
 
 theme_launcher_update_jsonc_setting() {
@@ -2027,7 +2084,7 @@ theme_launcher_apply_gtk_css() {
 
     mkdir -p "$(dirname "$target")"
     block="$(<"$generated")"
-    theme_launcher_write_managed_block "$target" "$block"
+    theme_launcher_write_css_managed_block "$target" "$block"
   done
 }
 
