@@ -46,6 +46,8 @@ theme-launcher metadata [THEME]
 theme-launcher favorite list|add|remove|toggle THEME
 theme-launcher default [THEME]
 theme-launcher apply-default
+theme-launcher generate-previews [--dry-run]
+theme-launcher audit-themes
 theme-launcher sync
 ```
 
@@ -107,8 +109,26 @@ Supported metadata keys:
 
 - The GTK launcher shows catalog previews, selected wallpapers, metadata, variant filters, favorites, search, and default-theme actions.
 - Multi-wallpaper themes expose a wallpaper picker and randomize action.
+- Theme details and recently inspected themes are available from the launcher.
 - Optional desktop preview applies themes while browsing and reverts previews when canceled.
 - Favorites and the default theme are stored in local state and are also available from the CLI.
+
+## Catalog Maintenance
+
+Uniform workspace previews can be regenerated from each theme palette:
+
+```bash
+theme-launcher generate-previews --dry-run
+theme-launcher generate-previews
+```
+
+The generator stores backups under `~/.local/share/theme-launcher/state/preview-backups`.
+
+Imported themes can be checked for cleanup issues with:
+
+```bash
+theme-launcher audit-themes
+```
 
 ## Safety Notes
 

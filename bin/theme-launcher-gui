@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import os
+import time
 from pathlib import Path
 
 import gi
@@ -26,6 +27,13 @@ PREVIEW_IMAGE_WIDTH = 704
 PREVIEW_IMAGE_HEIGHT = 396
 PREVIEW_FRAME_WIDTH = 752
 PREVIEW_FRAME_HEIGHT = 424
+STATE_DIR = Path(os.environ.get("THEME_LAUNCHER_HOME", Path.home() / ".local/share/theme-launcher")) / "state"
+GUI_STATE_FILE = STATE_DIR / "gui-state.json"
+RECENT_THEMES_FILE = STATE_DIR / "recent-themes.list"
+MAX_RECENT_THEMES = 12
+PREVIEW_CACHE_LIMIT = 24
+WALLPAPER_THUMB_WIDTH = 128
+WALLPAPER_THUMB_HEIGHT = 72
 APP_CSS = """
 window.theme-launcher {
   background:
@@ -280,6 +288,16 @@ button.wallpaper-randomize {
   padding: 6px 12px;
 }
 
+button.wallpaper-browse,
+button.details-button {
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+
+button.wallpaper-thumb {
+  padding: 6px;
+}
+
 box.preview-mode-switcher {
   padding: 6px;
 }
@@ -310,6 +328,34 @@ def run_cli(*args, check=True, extra_env=None):
 
 def display_name(theme):
     return " ".join(part.capitalize() for part in theme.split("-"))
+
+
+def load_json_file(path, fallback):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return fallback
+
+
+def write_json_file(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+
+def load_recent_themes():
+    try:
+        return [
+            line.strip()
+            for line in RECENT_THEMES_FILE.read_text().splitlines()
+            if line.strip()
+        ][:MAX_RECENT_THEMES]
+    except OSError:
+        return []
+
+
+def write_recent_themes(themes):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    RECENT_THEMES_FILE.write_text("\n".join(themes[:MAX_RECENT_THEMES]) + ("\n" if themes else ""))
 
 
 def wallpaper_label(name):
@@ -478,7 +524,16 @@ class ThemeRow(Gtk.ListBoxRow):
 class ThemeLauncherWindow(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Theme Launcher")
-        self.set_default_size(920, 620)
+        self.gui_state = load_json_file(GUI_STATE_FILE, {})
+        window_size = self.gui_state.get("window_size") if isinstance(self.gui_state, dict) else None
+        if (
+            isinstance(window_size, list)
+            and len(window_size) == 2
+            and all(isinstance(value, int) for value in window_size)
+        ):
+            self.set_default_size(max(window_size[0], 920), max(window_size[1], 620))
+        else:
+            self.set_default_size(920, 620)
         self.add_css_class("theme-launcher")
 
         self.current_theme = ""
@@ -486,8 +541,11 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.current_wallpaper = ""
         self.initial_wallpaper = ""
         self.default_theme = ""
-        self.variant_filter = "all"
-        self.favorites_only = False
+        self.variant_filter = self.gui_state.get("variant_filter", "all")
+        if self.variant_filter not in {"all", "dark", "light"}:
+            self.variant_filter = "all"
+        self.favorites_only = bool(self.gui_state.get("favorites_only", False))
+        self.recent_only = bool(self.gui_state.get("recent_only", False))
         self.search_query = ""
         self.theme_metadata = {}
         self.pending_theme = None
@@ -510,9 +568,15 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self._suspend_wallpaper_change = False
         self._wallpaper_choices = []
         self._local_wallpaper_choices = {}
+        self._preview_texture_cache = {}
         self.desktop_preview_enabled = False
-        self.preview_mode = "workspace"
+        self.preview_mode = self.gui_state.get("preview_mode", "workspace")
+        if self.preview_mode not in {"workspace", "wallpaper"}:
+            self.preview_mode = "workspace"
         self.preview_mode_buttons = {}
+        self.recent_themes = load_recent_themes()
+        self.details_popover = None
+        self.wallpaper_popover = None
 
         self._install_css()
 
@@ -589,8 +653,15 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
 
         self.favorites_button = Gtk.ToggleButton(label="Favorites")
         self.favorites_button.add_css_class("filter-button")
+        self.favorites_button.set_active(self.favorites_only)
         self.favorites_button.connect("toggled", self.on_favorites_toggled)
         filter_group.append(self.favorites_button)
+
+        self.recent_button = Gtk.ToggleButton(label="Recent")
+        self.recent_button.add_css_class("filter-button")
+        self.recent_button.set_active(self.recent_only)
+        self.recent_button.connect("toggled", self.on_recent_toggled)
+        filter_group.append(self.recent_button)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_vexpand(True)
@@ -686,6 +757,10 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.wallpaper_dropdown.add_css_class("wallpaper-dropdown")
         self.wallpaper_dropdown.connect("notify::selected", self.on_wallpaper_selected)
         wallpaper_controls.append(self.wallpaper_dropdown)
+        self.wallpaper_browse_button = Gtk.Button(label="Browse")
+        self.wallpaper_browse_button.add_css_class("wallpaper-browse")
+        self.wallpaper_browse_button.connect("clicked", self.on_wallpaper_browse_clicked)
+        wallpaper_controls.append(self.wallpaper_browse_button)
         self.wallpaper_randomize_button = Gtk.Button(label="Randomize")
         self.wallpaper_randomize_button.add_css_class("wallpaper-randomize")
         self.wallpaper_randomize_button.connect("clicked", self.on_wallpaper_randomize_clicked)
@@ -706,6 +781,17 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.preview_default_button.add_css_class("preview-action-button")
         self.preview_default_button.connect("clicked", self.on_preview_set_default_clicked)
         preview_actions.append(self.preview_default_button)
+
+        self.details_button = Gtk.Button(label="Details")
+        self.details_button.add_css_class("details-button")
+        self.details_button.connect("clicked", self.on_details_clicked)
+        preview_actions.append(self.details_button)
+
+        self.apply_summary_label = Gtk.Label(xalign=0)
+        self.apply_summary_label.add_css_class("dim-label")
+        self.apply_summary_label.add_css_class("preview-description")
+        self.apply_summary_label.set_wrap(True)
+        preview_panel.append(self.apply_summary_label)
 
         self.preview_description_label = Gtk.Label(xalign=0)
         self.preview_description_label.add_css_class("dim-label")
@@ -762,6 +848,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             )
 
     def load_themes(self):
+        started = time.monotonic()
         self.reload_metadata()
         themes = [line for line in run_cli("list").stdout.splitlines() if line]
         self.current_theme = run_cli("current", check=False).stdout.strip()
@@ -781,14 +868,21 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
 
         self.apply_filters(refresh_status=False)
 
-        selected_theme = self.current_theme or self.default_theme
+        selected_theme = (
+            self.gui_state.get("selected_theme")
+            if isinstance(self.gui_state, dict)
+            else ""
+        )
+        if selected_theme not in themes:
+            selected_theme = self.current_theme or self.default_theme
         if selected_theme:
             self._suspend_selection_apply = True
             self.select_theme(selected_theme)
             self._suspend_selection_apply = False
 
         if selected_theme:
-            self.set_status(f"Current theme: {display_name(selected_theme)}", busy=False)
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            self.set_status(f"Current theme: {display_name(selected_theme)} · loaded in {elapsed_ms} ms", busy=False)
         else:
             self.set_status("Select a theme to inspect it.", busy=False)
         self.refresh_preview()
@@ -823,6 +917,42 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             "selected_wallpaper": "",
             "current_wallpaper": "",
         })
+
+    def _mark_recent_theme(self, theme):
+        if not theme:
+            return
+        self.recent_themes = [item for item in self.recent_themes if item != theme]
+        self.recent_themes.insert(0, theme)
+        self.recent_themes = self.recent_themes[:MAX_RECENT_THEMES]
+        write_recent_themes(self.recent_themes)
+
+    def _save_gui_state(self):
+        if self._destroyed:
+            return
+        width = self.get_width()
+        height = self.get_height()
+        state = {
+            "window_size": [width, height],
+            "variant_filter": self.variant_filter,
+            "preview_mode": self.preview_mode,
+            "selected_theme": self.current_preview_theme() or "",
+            "favorites_only": self.favorites_only,
+            "recent_only": self.recent_only,
+        }
+        write_json_file(GUI_STATE_FILE, state)
+
+    def _apply_summary_for(self, theme, metadata):
+        source = "custom" if str(metadata.get("path", "")).startswith(str(Path.home())) else metadata.get("source", "theme")
+        wallpaper_count = len(metadata.get("wallpapers", []))
+        parts = [
+            "Apply updates GNOME, GTK, Ghostty, terminal tools, editor colors, and wallpaper when available.",
+            "GNOME Shell and Chromium stay opt-in unless explicitly enabled.",
+        ]
+        if wallpaper_count:
+            parts.append(f"{wallpaper_count} wallpaper option(s) available.")
+        if source:
+            parts.append(f"Source: {source}.")
+        return " ".join(parts)
 
     def _preview_sources_for(self, theme, metadata):
         return {
@@ -864,6 +994,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             self.preview_name_label.set_text("No theme selected")
             self.preview_meta_label.set_text("Choose a theme to inspect its preview.")
             self.preview_description_label.set_text("")
+            self.apply_summary_label.set_text("")
             self._clear_preview_badges()
             self.preview_picture.set_paintable(None)
             self.preview_favorite_button.set_label("Add Favorite")
@@ -886,6 +1017,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
 
         description = metadata.get("description") or "Catalog preview image for this theme."
         self.preview_description_label.set_text(description)
+        self.apply_summary_label.set_text(self._apply_summary_for(theme, metadata))
 
         self._set_preview_badges(metadata)
         preview_path = self._sync_preview_mode(theme, metadata)
@@ -903,14 +1035,22 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             return
 
         try:
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                preview_path,
-                PREVIEW_IMAGE_WIDTH,
-                PREVIEW_IMAGE_HEIGHT,
-                True,
-            )
-            texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-        except GLib.Error:
+            stat = Path(preview_path).stat()
+            cache_key = (preview_path, stat.st_mtime_ns)
+            texture = self._preview_texture_cache.get(cache_key)
+            if texture is None:
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    preview_path,
+                    PREVIEW_IMAGE_WIDTH,
+                    PREVIEW_IMAGE_HEIGHT,
+                    True,
+                )
+                texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+                self._preview_texture_cache[cache_key] = texture
+                if len(self._preview_texture_cache) > PREVIEW_CACHE_LIMIT:
+                    oldest_key = next(iter(self._preview_texture_cache))
+                    self._preview_texture_cache.pop(oldest_key, None)
+        except (GLib.Error, OSError):
             self.preview_picture.set_paintable(None)
             return
 
@@ -1024,6 +1164,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             row_variant = metadata.get("variant", "dark")
             matches_variant = self.variant_filter == "all" or row_variant == self.variant_filter
             matches_favorite = not self.favorites_only or metadata.get("favorite")
+            matches_recent = not self.recent_only or row.theme in self.recent_themes
             query = self.search_query.casefold()
             haystack = " ".join([
                 row.theme,
@@ -1033,7 +1174,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
                 " ".join(metadata.get("tags", [])),
             ]).casefold()
             matches_search = not query or query in haystack
-            should_show = matches_variant and matches_favorite and matches_search
+            should_show = matches_variant and matches_favorite and matches_recent and matches_search
             row.set_visible(should_show)
 
         visible_themes = self.visible_themes()
@@ -1063,6 +1204,8 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
                 filter_parts.append(self.variant_filter)
             if self.favorites_only:
                 filter_parts.append("favorites")
+            if self.recent_only:
+                filter_parts.append("recent")
             if self.search_query:
                 filter_parts.append(f'matching "{self.search_query}"')
 
@@ -1085,10 +1228,17 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             return
 
         self.variant_filter = filter_key
+        self._save_gui_state()
         self.apply_filters()
 
     def on_favorites_toggled(self, button):
         self.favorites_only = button.get_active()
+        self._save_gui_state()
+        self.apply_filters()
+
+    def on_recent_toggled(self, button):
+        self.recent_only = button.get_active()
+        self._save_gui_state()
         self.apply_filters()
 
     def on_preview_mode_toggled(self, button, mode_key):
@@ -1105,6 +1255,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             return
 
         self.preview_mode = mode_key
+        self._save_gui_state()
         self.refresh_preview()
 
     def on_desktop_preview_toggled(self, switch, _param):
@@ -1153,6 +1304,9 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.refresh_rows()
         if theme is None:
             return
+
+        self._mark_recent_theme(theme)
+        self._save_gui_state()
 
         if not self.desktop_preview_enabled:
             self.set_status(f"Inspecting {display_name(theme)} in launcher only", busy=False)
@@ -1329,6 +1483,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             self.current_theme = theme
             self.current_wallpaper = self.metadata_for(theme).get("selected_wallpaper", "") or (wallpaper or "")
             self._local_wallpaper_choices.pop(theme, None)
+            self._mark_recent_theme(theme)
             self.set_status(f"Previewing {display_name(theme)}", busy=False)
             self.refresh_rows()
             if close_on_success:
@@ -1419,6 +1574,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         return False
 
     def on_destroy(self, _widget):
+        self._save_gui_state()
         self._destroyed = True
 
     def set_status(self, message, busy=False):
@@ -1430,8 +1586,131 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.preview_favorite_button.set_sensitive(not busy)
         self.preview_default_button.set_sensitive(not busy)
         self.wallpaper_dropdown.set_sensitive(not busy)
+        self.wallpaper_browse_button.set_sensitive(not busy)
         self.wallpaper_randomize_button.set_sensitive(not busy)
+        self.details_button.set_sensitive(not busy)
         self.desktop_preview_switch.set_sensitive(not busy)
+
+    def on_wallpaper_browse_clicked(self, button):
+        theme = self.current_preview_theme()
+        if not theme:
+            return
+        metadata = self.metadata_for(theme)
+        wallpapers = [item for item in metadata.get("wallpapers", []) if item.get("name")]
+        if not wallpapers:
+            return
+
+        if self.wallpaper_popover is not None:
+            self.wallpaper_popover.popdown()
+
+        self.wallpaper_popover = Gtk.Popover()
+        self.wallpaper_popover.set_parent(button)
+        self.wallpaper_popover.set_has_arrow(True)
+        self.wallpaper_popover.set_autohide(True)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_min_content_width(480)
+        scroller.set_min_content_height(260)
+        grid = Gtk.Grid()
+        grid.set_column_spacing(8)
+        grid.set_row_spacing(8)
+        grid.set_margin_top(10)
+        grid.set_margin_bottom(10)
+        grid.set_margin_start(10)
+        grid.set_margin_end(10)
+
+        for index, wallpaper in enumerate(wallpapers):
+            choice = wallpaper.get("name", "")
+            label = wallpaper.get("label") or wallpaper_label(choice)
+            tile = Gtk.Button()
+            tile.add_css_class("wallpaper-thumb")
+            tile.connect("clicked", self.on_wallpaper_thumb_clicked, theme, choice)
+            tile_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            try:
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    wallpaper.get("path", ""),
+                    WALLPAPER_THUMB_WIDTH,
+                    WALLPAPER_THUMB_HEIGHT,
+                    True,
+                )
+                tile_box.append(Gtk.Image.new_from_paintable(Gdk.Texture.new_for_pixbuf(pixbuf)))
+            except (GLib.Error, OSError):
+                tile_box.append(Gtk.Label(label="No preview"))
+            tile_label = Gtk.Label(label=label)
+            tile_label.set_wrap(True)
+            tile_label.set_max_width_chars(18)
+            tile_box.append(tile_label)
+            tile.set_child(tile_box)
+            grid.attach(tile, index % 3, index // 3, 1, 1)
+
+        scroller.set_child(grid)
+        self.wallpaper_popover.set_child(scroller)
+        self.wallpaper_popover.popup()
+
+    def on_wallpaper_thumb_clicked(self, _button, theme, wallpaper):
+        if self.wallpaper_popover is not None:
+            self.wallpaper_popover.popdown()
+        self._set_local_wallpaper_choice(theme, wallpaper)
+        self._select_wallpaper_choice(wallpaper)
+        self.refresh_preview(update_wallpaper_selector=False)
+        if self.desktop_preview_enabled:
+            self.schedule_preview(theme, wallpaper=wallpaper, immediate=True)
+        else:
+            self.set_status(f"Selected wallpaper for {display_name(theme)}", busy=False)
+
+    def on_details_clicked(self, button):
+        theme = self.current_preview_theme()
+        if not theme:
+            return
+        metadata = self.metadata_for(theme)
+        if self.details_popover is not None:
+            self.details_popover.popdown()
+
+        self.details_popover = Gtk.Popover()
+        self.details_popover.set_parent(button)
+        self.details_popover.set_has_arrow(True)
+        self.details_popover.set_autohide(True)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.set_size_request(340, -1)
+
+        title = Gtk.Label(xalign=0)
+        title.set_text(metadata.get("name") or display_name(theme))
+        title.add_css_class("preview-title")
+        box.append(title)
+
+        details = [
+            f"Slug: {theme}",
+            f"Variant: {(metadata.get('variant') or 'dark').title()}",
+            f"Source: {metadata.get('source', 'theme')}",
+            f"Wallpapers: {len(metadata.get('wallpapers', []))}",
+        ]
+        path = metadata.get("path", "")
+        if path:
+            details.append(f"Path: {path}")
+        targets = metadata.get("targets", [])
+        if targets:
+            details.append("Includes: " + ", ".join(targets))
+        if metadata.get("favorite"):
+            details.append("Favorite: yes")
+        if theme == self.current_theme:
+            details.append("Current: yes")
+        if theme == self.default_theme:
+            details.append("Default: yes")
+
+        for detail in details:
+            label = Gtk.Label(xalign=0)
+            label.add_css_class("dim-label")
+            label.set_wrap(True)
+            label.set_text(detail)
+            box.append(label)
+
+        self.details_popover.set_child(box)
+        self.details_popover.popup()
 
     def show_row_menu(self, row, x, y):
         if self.menu_popover is not None:

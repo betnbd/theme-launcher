@@ -54,7 +54,7 @@ theme_launcher_cli_parse_apply_filters() {
 
 usage() {
   cat <<'EOF'
-Usage: theme-launcher [choose|gui|apply|list|current|previous|doctor|metadata|favorite|default|apply-default|sync] [args]
+Usage: theme-launcher [choose|gui|apply|list|current|previous|doctor|metadata|favorite|default|apply-default|generate-previews|audit-themes|sync] [args]
 
 Commands:
   choose           Open a picker and apply the chosen theme
@@ -70,6 +70,8 @@ Commands:
   default          Print the default theme name
   default THEME    Set the default theme name
   apply-default    Apply the stored default theme
+  generate-previews Generate uniform workspace preview images
+  audit-themes     Report import cleanup issues
   sync             Refresh the theme catalog from the configured source
 
 Apply filters:
@@ -197,6 +199,13 @@ case "$command_name" in
     theme_launcher_cli_parse_apply_filters "$@"
     theme_launcher_apply_default_theme "${THEME_LAUNCHER_SELECTED_WALLPAPER:-}"
     printf "Applied theme: %s\n" "$(theme_launcher_display_name "$(theme_launcher_default)")"
+    ;;
+  generate-previews)
+    shift || true
+    theme_launcher_generate_previews "$@"
+    ;;
+  audit-themes)
+    theme_launcher_audit_themes
     ;;
   sync)
     exec "$PROJECT_ROOT/bin/theme-sync"
