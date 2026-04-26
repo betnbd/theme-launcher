@@ -1,34 +1,22 @@
-# Theme Launcher Project
+# Theme Launcher
 
-Personal Ubuntu theme launcher for applying a shared theme catalog across the local desktop and selected apps.
+Theme Launcher is a local Ubuntu theme switcher for applying a shared theme catalog across GNOME and selected desktop apps.
 
-This project is now the source of truth for the launcher code.
+It is designed for a single workstation workflow: pick a theme, preview it, apply the matching desktop/app colors, and keep enough state to move back to the previous or default theme quickly.
 
-Runtime state still lives in:
+## What It Themes
 
-- `~/.local/share/theme-launcher`
+- GNOME color mode, icons, wallpaper, and Ubuntu Dock when supported by the current GNOME build
+- GNOME Shell top bar through the `user-theme` extension
+- Ghostty, including launcher-driven reload support
+- VSCodium and VS Code-family editors
+- Neovim, btop, tmux, lazygit, fastfetch, bat, and fzf
+- GTK CSS generated from the selected theme palette
+- Chromium policy colors as an explicit opt-in target
 
-## Goal
+## Quick Start
 
-Apply a single named theme across the local desktop and selected apps with one local command set and one runtime state directory.
-
-Current target apps:
-
-- GNOME mode, icons, wallpaper, Ubuntu Dock
-- GNOME Shell top bar via generated shell theme when `user-theme` is installed
-- Ghostty with launcher-driven reload support
-- VSCodium / VS Code family
-- Neovim
-- btop
-- tmux
-- lazygit
-- fastfetch
-- bat
-- fzf
-
-## Current Entry Points
-
-For a normal local setup, the usual flow is:
+The usual local flow is:
 
 ```bash
 theme-launcher gui
@@ -36,48 +24,71 @@ theme-launcher doctor
 theme-launcher apply-default
 ```
 
-- CLI: `theme-launcher`
-- GUI launcher: `theme-launcher gui`
-- Desktop sessions open the GTK launcher by default from `theme-launcher choose`
-- Previous theme: `theme-launcher previous apply`
-- Doctor checks: `theme-launcher doctor`
-- Metadata: `theme-launcher metadata [THEME]`
-- Favorites: `theme-launcher favorite toggle THEME`
-- Default theme: `theme-launcher default THEME`
-- Apply default theme: `theme-launcher apply-default`
-- Apply filters: `theme-launcher apply THEME --skip ghostty,tmux`
-- Apply filters: `theme-launcher apply-default --only gnome,ghostty`
-- Sync themes: `theme-launcher sync`
-- Desktop launcher: `~/.local/share/applications/theme-launcher.desktop`
+If the command is not already on `PATH`, run it from the repository:
 
-`theme-launcher sync` now expects a configured source archive:
+```bash
+./bin/theme-launcher gui
+./bin/theme-launcher doctor
+```
 
-- `THEME_LAUNCHER_SYNC_ARCHIVE_URL`
-- `THEME_LAUNCHER_SYNC_ROOT_DIR`
-- Optional label: `THEME_LAUNCHER_SYNC_SOURCE_LABEL`
+## Commands
 
-## Behavior Notes
+```text
+theme-launcher choose
+theme-launcher gui
+theme-launcher apply THEME
+theme-launcher list
+theme-launcher current
+theme-launcher previous
+theme-launcher previous apply
+theme-launcher doctor
+theme-launcher metadata [THEME]
+theme-launcher favorite list|add|remove|toggle THEME
+theme-launcher default [THEME]
+theme-launcher apply-default
+theme-launcher sync
+```
 
-- The GTK launcher shows each theme's catalog screenshot and inferred metadata in a side preview panel by default
-- The GTK launcher has an optional desktop preview switch for live-applies while browsing, and reverts those previews on cancel
-- The preview panel can switch between a workspace preview image and the selected wallpaper when both are available
-- Themes with multiple wallpapers expose a wallpaper picker in the GTK launcher and remember the last wallpaper selected for each theme
-- The GTK launcher preview panel follows the selected wallpaper, and multi-wallpaper themes also expose a randomize action
-- The GTK launcher can filter the catalog by variant, favorites, and live search terms, and exposes quick favorite/default actions in the preview panel
-- Launcher-driven Ghostty theme changes reload the running terminal and suppress the config reload toast
-- Plain CLI applies update Ghostty config for new windows and sessions without forcing a live reload unless `THEME_LAUNCHER_RELOAD_GHOSTTY=1` is set
-- Running tmux sessions reload the generated theme automatically after apply
-- GNOME Shell panel theming now applies during normal theme changes when the `user-theme` extension is available; Chromium integration still stays opt-in unless `THEME_LAUNCHER_ENABLE_CHROMIUM=1` is set or `--only chromium` is used
-- `theme-launcher doctor` checks dependencies, write access, theme asset shape, stored theme references, GTK GUI bindings, and common GNOME or Chromium integration gaps before apply time
-- On newer Ubuntu / GNOME builds where Ubuntu Dock no longer exposes the old tweak schema, dock color tweaks are skipped cleanly instead of throwing apply-time warnings
-- CLI apply flows support one-shot `--only` and `--skip` target filters; GUI Apply and optional desktop previews still apply the full theme set
-- Theme metadata is read from optional `theme.json` files and falls back to inferred values when the catalog only provides theme assets
-- Custom theme overlays can live in `~/.local/share/theme-launcher/themes` and override synced catalog themes of the same name
-- The launcher supports a small favorites list stored in local state and surfaced in the GTK launcher
+Apply commands support:
 
-## Theme Metadata
+```text
+--only TARGETS
+--skip TARGETS
+--wallpaper NAME
+--random-wallpaper
+```
 
-Each theme may provide an optional `theme.json` alongside its assets. When absent, the launcher infers:
+Example:
+
+```bash
+theme-launcher apply rose-pine --only gnome,ghostty
+theme-launcher apply-default --skip chromium
+theme-launcher previous apply
+```
+
+## Theme Catalog
+
+Runtime state and synced themes live under:
+
+```text
+~/.local/share/theme-launcher
+```
+
+`theme-launcher sync` expects these environment variables when pulling a catalog archive:
+
+```text
+THEME_LAUNCHER_SYNC_ARCHIVE_URL
+THEME_LAUNCHER_SYNC_ROOT_DIR
+THEME_LAUNCHER_SYNC_SOURCE_LABEL
+```
+
+Custom local overrides can live in:
+
+```text
+~/.local/share/theme-launcher/themes
+```
+
+Each theme may include an optional `theme.json`. When it is missing, the launcher infers:
 
 - display name from the theme slug
 - variant from `light.mode`
@@ -92,19 +103,40 @@ Supported metadata keys:
 - `badges`
 - `tags`
 
-## Active Code
+## GUI Behavior
 
-- Main library: [theme-launcher.sh](./lib/theme-launcher.sh)
-- CLI entrypoint: [theme-launcher](./bin/theme-launcher)
-- Sync script: [theme-sync](./bin/theme-sync)
+- The GTK launcher shows catalog previews, selected wallpapers, metadata, variant filters, favorites, search, and default-theme actions.
+- Multi-wallpaper themes expose a wallpaper picker and randomize action.
+- Optional desktop preview applies themes while browsing and reverts previews when canceled.
+- Favorites and the default theme are stored in local state and are also available from the CLI.
 
-Thin user wrappers still live in:
+## Safety Notes
 
-- `~/.local/bin/theme-launcher`
-- `~/.local/bin/theme-sync`
+Full applies skip GNOME Shell top-bar and Chromium integration unless they are explicitly enabled.
 
-The old runtime copies under `~/.local/share/theme-launcher/bin` and `lib` have been archived under `~/.local/share/theme-launcher/archive`.
+To apply those targets directly:
 
-## Notes
+```bash
+theme-launcher apply THEME --only gnome-shell
+theme-launcher apply THEME --only chromium
+```
 
-This is intentionally a personal utility, not a general-purpose product. The project is optimized for one machine, fast iteration, and practical theme coverage rather than broad portability.
+Or set:
+
+```text
+THEME_LAUNCHER_ENABLE_GNOME_SHELL=1
+THEME_LAUNCHER_ENABLE_CHROMIUM=1
+```
+
+`theme-launcher doctor` checks dependencies, writable paths, theme asset shape, GTK bindings, stored theme references, and common GNOME/Chromium integration gaps before apply time.
+
+## Repository Layout
+
+- `bin/theme-launcher`: CLI entrypoint
+- `bin/theme-launcher-gui`: GTK launcher
+- `bin/theme-sync`: catalog sync entrypoint
+- `lib/theme-launcher.sh`: shared runtime library
+
+## Scope
+
+This is a personal workstation utility, not a general-purpose theme platform. It favors practical local coverage and fast iteration over broad portability.
