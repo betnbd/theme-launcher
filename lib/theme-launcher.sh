@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+THEME_LAUNCHER_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+THEME_LAUNCHER_PYTHON_DIR="$THEME_LAUNCHER_LIB_DIR/python"
 THEME_LAUNCHER_HOME="${THEME_LAUNCHER_HOME:-$HOME/.local/share/theme-launcher}"
 THEME_LAUNCHER_VENDOR_ROOT="$THEME_LAUNCHER_HOME/vendor"
 THEME_LAUNCHER_VENDOR_CATALOG="$THEME_LAUNCHER_VENDOR_ROOT/catalog"
@@ -99,12 +101,25 @@ theme_launcher_in_gnome_session() {
   [[ "$desktop_session" == "gnome" || "$desktop_session" == "ubuntu" ]]
 }
 
+THEME_LAUNCHER_GSETTINGS_SCHEMAS=""
+THEME_LAUNCHER_GSETTINGS_RELOCATABLE_SCHEMAS=""
+
 theme_launcher_gsettings_schema_exists() {
   local schema="$1"
 
   command -v gsettings >/dev/null 2>&1 || return 1
-  gsettings list-schemas 2>/dev/null | grep -Fxq "$schema" && return 0
-  gsettings list-relocatable-schemas 2>/dev/null | grep -Fxq "$schema"
+  if [[ -z "$THEME_LAUNCHER_GSETTINGS_SCHEMAS" ]]; then
+    THEME_LAUNCHER_GSETTINGS_SCHEMAS="$(gsettings list-schemas 2>/dev/null || true)"
+    THEME_LAUNCHER_GSETTINGS_SCHEMAS="${THEME_LAUNCHER_GSETTINGS_SCHEMAS:- }"
+  fi
+  if [[ $'\n'"$THEME_LAUNCHER_GSETTINGS_SCHEMAS"$'\n' == *$'\n'"$schema"$'\n'* ]]; then
+    return 0
+  fi
+  if [[ -z "$THEME_LAUNCHER_GSETTINGS_RELOCATABLE_SCHEMAS" ]]; then
+    THEME_LAUNCHER_GSETTINGS_RELOCATABLE_SCHEMAS="$(gsettings list-relocatable-schemas 2>/dev/null || true)"
+    THEME_LAUNCHER_GSETTINGS_RELOCATABLE_SCHEMAS="${THEME_LAUNCHER_GSETTINGS_RELOCATABLE_SCHEMAS:- }"
+  fi
+  [[ $'\n'"$THEME_LAUNCHER_GSETTINGS_RELOCATABLE_SCHEMAS"$'\n' == *$'\n'"$schema"$'\n'* ]]
 }
 
 theme_launcher_ubuntu_dock_schema() {
@@ -245,17 +260,13 @@ theme_launcher_theme_roots() {
   fi
 }
 
-theme_launcher_parent_dir() {
-  dirname "$1"
-}
-
 theme_launcher_path_writable() {
   local path="$1"
 
   if [[ -e "$path" ]]; then
     [[ -w "$path" ]]
   else
-    [[ -w "$(theme_launcher_parent_dir "$path")" ]]
+    [[ -w "$(dirname "$path")" ]]
   fi
 }
 
@@ -268,19 +279,23 @@ theme_launcher_check_required_command() {
   fi
 }
 
-theme_launcher_known_target() {
-  case "$1" in
-    gnome|dock|gnome-shell|ghostty|btop|neovim|tmux|lazygit|fastfetch|bat|fzf|gtk|vscode|chromium)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+THEME_LAUNCHER_CHROMIUM_BROWSERS=(chromium-browser chromium google-chrome brave-browser)
+THEME_LAUNCHER_CHROMIUM_POLICY_DIRS=(
+  "/etc/chromium/policies/managed"
+  "/etc/chromium/browser/policies/managed"
+  "/etc/opt/chrome/policies/managed"
+  "/etc/brave/policies/managed"
+)
+
+theme_launcher_chromium_installed() {
+  local browser
+  for browser in "${THEME_LAUNCHER_CHROMIUM_BROWSERS[@]}"; do
+    command -v "$browser" >/dev/null 2>&1 && return 0
+  done
+  return 1
 }
 
-theme_launcher_target_registry() {
-  cat <<'EOF'
+read -r -d '' THEME_LAUNCHER_TARGET_REGISTRY <<'EOF' || true
 gnome||theme_launcher_apply_gnome||gsettings
 dock||theme_launcher_apply_ubuntu_dock||gsettings
 gnome-shell|theme_launcher_generate_gnome_shell_css|theme_launcher_apply_gnome_shell||gsettings,busctl
@@ -296,6 +311,9 @@ gtk|theme_launcher_generate_gtk_css|theme_launcher_apply_gtk_css||
 vscode||theme_launcher_apply_vscode_family||code|code-insiders|codium|cursor
 chromium||theme_launcher_apply_chromium||chromium-browser|chromium|google-chrome|brave-browser
 EOF
+
+theme_launcher_target_registry() {
+  printf "%s" "$THEME_LAUNCHER_TARGET_REGISTRY"
 }
 
 theme_launcher_for_each_target() {
@@ -369,6 +387,7 @@ theme_launcher_target_in_filter() {
   local target="$1"
   local filter="$2"
   local item
+  local -a items=()
 
   [[ -n "$filter" ]] || return 1
 
@@ -407,6 +426,11 @@ theme_launcher_risky_target_enabled() {
       return 0
       ;;
   esac
+
+  # If the user already excluded this target via --skip, stay silent.
+  if theme_launcher_target_in_filter "$target" "${THEME_LAUNCHER_TARGET_SKIP:-}"; then
+    return 1
+  fi
 
   if theme_launcher_target_in_filter "$target" "${THEME_LAUNCHER_TARGET_ONLY:-}"; then
     return 0
@@ -506,22 +530,15 @@ theme_launcher_materialize_background() {
 
   mkdir -p "$(dirname "$target_file")"
 
+  case "${source_file,,}" in
+    *.png)
+      cp -f "$source_file" "$target_file"
+      return 0
+      ;;
+  esac
+
   if command -v python3 >/dev/null 2>&1; then
-    if python3 - "$source_file" "$target_file" <<'PY'
-import sys
-
-try:
-    from PIL import Image
-except Exception:
-    raise SystemExit(1)
-
-source_path, target_path = sys.argv[1], sys.argv[2]
-image = Image.open(source_path)
-if image.mode not in ("RGB", "RGBA"):
-    image = image.convert("RGB")
-image.save(target_path, format="PNG")
-PY
-    then
+    if python3 "$THEME_LAUNCHER_PYTHON_DIR/normalize_png.py" "$source_file" "$target_file"; then
       return 0
     fi
   fi
@@ -582,30 +599,32 @@ theme_launcher_set_favorite() {
   local requested_theme="$1"
   local enabled="$2"
   local theme
-  local tmp
+  local entry
+  local -a entries=()
+  local -a filtered=()
 
   theme="$(theme_launcher_slugify "$requested_theme")"
   theme_launcher_theme_exists "$theme" || theme_launcher_fail "unknown theme: $requested_theme"
 
   mkdir -p "$THEME_LAUNCHER_STATE_DIR"
-  tmp="$(mktemp)"
-  theme_launcher_list_favorites >"$tmp"
+
+  if [[ -f "$THEME_LAUNCHER_FAVORITES_FILE" ]]; then
+    mapfile -t entries < "$THEME_LAUNCHER_FAVORITES_FILE"
+  fi
+
+  for entry in "${entries[@]}"; do
+    [[ -n "$entry" && "$entry" != "$theme" ]] && filtered+=("$entry")
+  done
 
   if [[ "$enabled" == "1" ]]; then
-    if ! grep -Fxq "$theme" "$tmp"; then
-      printf "%s\n" "$theme" >>"$tmp"
-    fi
-  else
-    grep -Fxv "$theme" "$tmp" >"$tmp.next" || true
-    mv "$tmp.next" "$tmp"
+    filtered+=("$theme")
   fi
 
-  if [[ -s "$tmp" ]]; then
-    sort -u "$tmp" >"$THEME_LAUNCHER_FAVORITES_FILE"
-  else
+  if [[ "${#filtered[@]}" -eq 0 ]]; then
     rm -f "$THEME_LAUNCHER_FAVORITES_FILE"
+  else
+    printf "%s\n" "${filtered[@]}" | sort -u >"$THEME_LAUNCHER_FAVORITES_FILE"
   fi
-  rm -f "$tmp"
 }
 
 theme_launcher_toggle_favorite() {
@@ -733,152 +752,14 @@ theme_launcher_theme_metadata() {
 }
 
 theme_launcher_all_theme_metadata() {
-  if command -v python3 >/dev/null 2>&1; then
-    theme_launcher_all_theme_metadata_fast && return 0
-  fi
-
-  local first=1
-  local theme
-
-  printf "["
-  while IFS= read -r theme; do
-    [[ -n "$theme" ]] || continue
-    if [[ "$first" -eq 0 ]]; then
-      printf ","
-    fi
-    theme_launcher_theme_metadata "$theme"
-    first=0
-  done < <(theme_launcher_list)
-  printf "]\n"
-}
-
-theme_launcher_all_theme_metadata_fast() {
-  python3 - "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" "$THEME_LAUNCHER_THEMES_DIR" "$THEME_LAUNCHER_FAVORITES_FILE" "$THEME_LAUNCHER_WALLPAPER_STATE_DIR" "$THEME_LAUNCHER_THEME_NAME_FILE" "$THEME_LAUNCHER_WALLPAPER_NAME_FILE" <<'PY'
-import json
-import re
-import sys
-from pathlib import Path
-
-custom_root = Path(sys.argv[1])
-vendor_root = Path(sys.argv[2])
-favorites_file = Path(sys.argv[3])
-wallpaper_state_dir = Path(sys.argv[4])
-current_theme_file = Path(sys.argv[5])
-current_wallpaper_file = Path(sys.argv[6])
-
-roots = []
-for root in (custom_root, vendor_root):
-    if root.exists() and root.is_dir() and root not in roots:
-        roots.append(root)
-
-favorites = set()
-try:
-    favorites = {line.strip() for line in favorites_file.read_text().splitlines() if line.strip()}
-except OSError:
-    pass
-
-def read_text(path):
-    try:
-        return path.read_text().strip()
-    except OSError:
-        return ""
-
-current_theme = read_text(current_theme_file)
-current_wallpaper = read_text(current_wallpaper_file)
-
-def display_name(slug):
-    return " ".join(part.capitalize() for part in slug.split("-"))
-
-def wallpaper_label(name):
-    stem = Path(name).stem
-    cleaned = re.sub(r"^[0-9]+[-_]?", "", stem).replace("-", " ").replace("_", " ")
-    return (cleaned or stem).title()
-
-def theme_variant(theme_dir, custom):
-    variant = custom.get("variant")
-    if variant in {"light", "dark"}:
-        return variant
-    return "light" if (theme_dir / "light.mode").exists() else "dark"
-
-def saved_wallpaper(slug):
-    return read_text(wallpaper_state_dir / f"{slug}.name")
-
-def targets(theme_dir):
-    checks = [
-        ("GNOME", "icons.theme"),
-        ("GTK", "gtk.css"),
-        ("Ghostty", "ghostty.conf"),
-        ("btop", "btop.theme"),
-        ("Neovim", "neovim.lua"),
-        ("VS Code", "vscode.json"),
-        ("Chromium", "chromium.theme"),
-        ("Waybar", "waybar.css"),
-        ("Hyprland", "hyprland.conf"),
-        ("Kitty", "kitty.conf"),
-    ]
-    return [label for label, filename in checks if (theme_dir / filename).exists()]
-
-theme_dirs = {}
-for root in roots:
-    for child in sorted(root.iterdir() if root.exists() else []):
-        if child.is_dir():
-            theme_dirs.setdefault(child.name, child)
-
-items = []
-for slug in sorted(theme_dirs):
-    theme_dir = theme_dirs[slug]
-    metadata_file = theme_dir / "theme.json"
-    custom = {}
-    if metadata_file.exists():
-        try:
-            parsed = json.loads(metadata_file.read_text())
-            if isinstance(parsed, dict):
-                custom = parsed
-        except Exception:
-            custom = {}
-
-    variant = theme_variant(theme_dir, custom)
-    preview_abs = str(theme_dir / "preview.png") if (theme_dir / "preview.png").exists() else ""
-    wallpapers = []
-    backgrounds = theme_dir / "backgrounds"
-    if backgrounds.exists():
-        for background in sorted(path for path in backgrounds.iterdir() if path.is_file()):
-            wallpapers.append({
-                "name": background.name,
-                "label": wallpaper_label(background.name),
-                "path": str(background),
-            })
-
-    selected_wallpaper = saved_wallpaper(slug)
-    wallpaper_names = {item["name"] for item in wallpapers}
-    if selected_wallpaper not in wallpaper_names:
-        selected_wallpaper = ""
-    if not selected_wallpaper and wallpapers:
-        selected_wallpaper = wallpapers[0]["name"]
-
-    badges = [badge for badge in custom.get("badges", []) if isinstance(badge, str)]
-    badges.append(variant.upper())
-    item = {
-        "slug": slug,
-        "name": custom.get("name") if isinstance(custom.get("name"), str) else display_name(slug),
-        "variant": variant,
-        "description": custom.get("description") if isinstance(custom.get("description"), str) else "",
-        "preview": custom.get("preview") if isinstance(custom.get("preview"), str) else ("preview.png" if preview_abs else ""),
-        "preview_path": custom.get("previewPath") if isinstance(custom.get("previewPath"), str) and custom.get("previewPath") else preview_abs,
-        "badges": sorted(set(badges)),
-        "tags": [tag for tag in custom.get("tags", []) if isinstance(tag, str)],
-        "wallpapers": wallpapers,
-        "selected_wallpaper": selected_wallpaper,
-        "current_wallpaper": current_wallpaper if slug == current_theme and current_wallpaper else None,
-        "favorite": slug in favorites,
-        "source": "custom" if str(theme_dir).startswith(str(custom_root)) else "vendor",
-        "path": str(theme_dir),
-        "targets": targets(theme_dir),
-    }
-    items.append(item)
-
-print(json.dumps(items, separators=(",", ":")))
-PY
+  theme_launcher_require python3
+  python3 "$THEME_LAUNCHER_PYTHON_DIR/all_theme_metadata.py" \
+    "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" \
+    "$THEME_LAUNCHER_THEMES_DIR" \
+    "$THEME_LAUNCHER_FAVORITES_FILE" \
+    "$THEME_LAUNCHER_WALLPAPER_STATE_DIR" \
+    "$THEME_LAUNCHER_THEME_NAME_FILE" \
+    "$THEME_LAUNCHER_WALLPAPER_NAME_FILE"
 }
 
 theme_launcher_generate_previews() {
@@ -905,286 +786,20 @@ theme_launcher_generate_previews() {
 
   python_cmd="$(theme_launcher_python_pillow_command)" || theme_launcher_fail "missing python3 with Pillow image support"
 
-  "$python_cmd" - "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" "$THEME_LAUNCHER_THEMES_DIR" "$THEME_LAUNCHER_STATE_DIR" "$dry_run" "$replace" <<'PY'
-import datetime
-import json
-import re
-import shutil
-import sys
-from pathlib import Path
-
-try:
-    from PIL import Image, ImageDraw, ImageFont
-except Exception as exc:
-    raise SystemExit(f"theme-launcher: Pillow is required to generate previews: {exc}")
-
-custom_root = Path(sys.argv[1])
-vendor_root = Path(sys.argv[2])
-state_dir = Path(sys.argv[3])
-dry_run = sys.argv[4] == "1"
-replace = sys.argv[5] == "1"
-
-roots = []
-for root in (custom_root, vendor_root):
-    if root.exists() and root.is_dir() and root not in roots:
-        roots.append(root)
-
-backup_root = state_dir / "preview-backups" / (datetime.datetime.now().strftime("%Y%m%d-%H%M%S-generate-previews"))
-manifest = []
-
-def font(path, size):
-    try:
-        return ImageFont.truetype(path, size)
-    except Exception:
-        return ImageFont.load_default()
-
-title_font = font("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-heading_font = font("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
-ui_font = font("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 15)
-mono_font = font("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 14)
-tiny_font = font("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 11)
-
-def parse_colors(path):
-    colors = {}
-    pattern = re.compile(r'^\s*([A-Za-z0-9_]+)\s*=\s*["\']?(#[0-9A-Fa-f]{6})')
-    if path.exists():
-        for line in path.read_text(errors="ignore").splitlines():
-            match = pattern.match(line)
-            if match:
-                colors.setdefault(match.group(1), match.group(2))
-    return colors
-
-def rgb(value, fallback):
-    if not value:
-        return fallback
-    value = value.strip().lstrip("#")
-    if not re.fullmatch(r"[0-9A-Fa-f]{6}", value):
-        return fallback
-    return tuple(int(value[i:i+2], 16) for i in (0, 2, 4))
-
-def mix(a, b, t):
-    return tuple(int(a[i] * (1 - t) + b[i] * t) for i in range(3))
-
-def lum(color):
-    return (0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2]) / 255
-
-def text_on(color):
-    return (242, 242, 242) if lum(color) < 0.56 else (22, 22, 22)
-
-def title(slug):
-    return " ".join(part.capitalize() for part in slug.split("-"))
-
-def fit(draw, text, font_obj, width):
-    if draw.textlength(text, font=font_obj) <= width:
-        return text
-    out = text
-    while out and draw.textlength(out + "...", font=font_obj) > width:
-        out = out[:-1]
-    return out + "..."
-
-def rounded(draw, box, radius, fill, outline=None, width=1):
-    draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
-
-def preview_for(theme_dir):
-    colors = parse_colors(theme_dir / "colors.toml")
-    bg = rgb(colors.get("background"), (18, 18, 22))
-    fg = rgb(colors.get("foreground"), (232, 232, 232))
-    accent = rgb(colors.get("accent") or colors.get("color4") or colors.get("color5"), (122, 162, 247))
-    c1 = rgb(colors.get("color1"), mix(accent, (245, 95, 95), 0.5))
-    c2 = rgb(colors.get("color2"), mix(accent, (110, 220, 155), 0.5))
-    c3 = rgb(colors.get("color3"), mix(accent, (245, 200, 95), 0.5))
-    c4 = rgb(colors.get("color4"), accent)
-    c5 = rgb(colors.get("color5"), accent)
-    c6 = rgb(colors.get("color6"), mix(accent, (100, 220, 220), 0.5))
-    light = lum(bg) > 0.66 or (theme_dir / "light.mode").exists()
-    image = Image.new("RGB", (1366, 768), (36, 36, 36))
-    draw = ImageDraw.Draw(image)
-    frame = (42, 42, 1324, 726)
-    rounded(draw, frame, 20, fill=(48, 48, 48), outline=(118, 118, 118), width=2)
-    draw.rounded_rectangle((44, 44, 1322, 84), radius=18, fill=(56, 56, 56))
-    draw.rectangle((44, 66, 1322, 84), fill=(56, 56, 56))
-    for i, color in enumerate([(238, 95, 91), (245, 188, 80), accent]):
-        draw.ellipse((62 + i * 24, 57, 76 + i * 24, 71), fill=color)
-    draw.text((154, 56), f"{theme_dir.name} workspace preview", fill=(226, 226, 226), font=ui_font)
-    draw.text((1142, 57), "10:34  60%", fill=(174, 174, 174), font=tiny_font)
-
-    panel = mix(bg, (255, 255, 255) if light else (0, 0, 0), 0.08)
-    panel2 = mix(bg, fg, 0.11 if not light else 0.08)
-    outline = mix(accent, (180, 180, 180), 0.45)
-    text = text_on(panel)
-    code_bg = mix(bg, (0, 0, 0), 0.36 if not light else 0.05)
-    code_text = text_on(code_bg)
-    muted = mix(text, panel, 0.45)
-
-    left = (70, 98, 858, 686)
-    right = (890, 98, 1296, 686)
-    rounded(draw, left, 16, fill=panel, outline=outline, width=2)
-    rounded(draw, right, 16, fill=panel, outline=outline, width=2)
-    sidebar = (92, 128, 258, 658)
-    editor = (282, 128, 832, 658)
-    rounded(draw, sidebar, 10, fill=panel2, outline=mix(outline, panel, 0.5))
-    rounded(draw, editor, 10, fill=code_bg, outline=mix(outline, panel, 0.4))
-    draw.text((110, 150), "THEME", fill=accent, font=heading_font)
-    for idx, filename in enumerate(["colors.toml", "hyprland.conf", "waybar.css", "ghostty.conf", "btop.theme", "neovim.lua", "preview.png"]):
-        y = 190 + idx * 43
-        active = filename == "colors.toml"
-        fill = mix(accent, bg, 0.42) if active else mix(panel2, text, 0.06)
-        rounded(draw, (106, y, 244, y + 30), 7, fill=fill)
-        draw.text((118, y + 7), filename, fill=text_on(fill), font=tiny_font)
-
-    lines = [
-        "# Theme Launcher workspace preview",
-        f'name = "{theme_dir.name}"',
-        "",
-        f'background = "{colors.get("background", "#121216")}"',
-        f'foreground = "{colors.get("foreground", "#e6e6e6")}"',
-        f'accent = "{colors.get("accent", colors.get("color4", "#7aa2f7"))}"',
-        "",
-        "[palette]",
-    ]
-    for key in ["color0", "color1", "color2", "color3", "color4", "color5", "color6", "color7", "color8", "color9", "color10", "color11"]:
-        if key in colors:
-            lines.append(f'{key:<8} = "{colors[key]}"')
-    lines += ["", "[workspace]", 'panel = "waybar.css"', 'terminal = "ghostty.conf"', 'editor = "neovim.lua"', 'preview = "generated"']
-    y = 148
-    for idx, line in enumerate(lines[:22], start=1):
-        draw.text((302, y), f"{idx:>2}", fill=mix(muted, code_bg, 0.25), font=mono_font)
-        color = muted if line.startswith("#") else c5 if line.startswith("[") else c2 if "color" in line or "accent" in line else code_text
-        draw.text((342, y), fit(draw, line, mono_font, 474), fill=color, font=mono_font)
-        y += 23
-
-    swatches = [bg, fg, accent, c1, c2, c3, c4, c5, c6]
-    draw.text((914, 126), "system monitor", fill=text, font=heading_font)
-    for idx, color in enumerate(swatches):
-        x = 914 + idx * 38
-        draw.rounded_rectangle((x, 162, x + 26, 188), radius=5, fill=color, outline=mix(color, (220, 220, 220), 0.26))
-    graph = (914, 212, 1272, 326)
-    rounded(draw, graph, 10, fill=code_bg, outline=mix(outline, panel, 0.4))
-    points = []
-    for idx in range(50):
-        value = 0.50 + 0.27 * __import__("math").sin(idx / 4.2) + 0.10 * __import__("math").sin(idx / 1.8)
-        points.append((graph[0] + 14 + idx * (graph[2] - graph[0] - 28) / 49, graph[3] - 18 - value * (graph[3] - graph[1] - 36)))
-    draw.line(points, fill=accent, width=3)
-    term = (914, 352, 1272, 520)
-    rounded(draw, term, 10, fill=code_bg, outline=mix(outline, panel, 0.4))
-    terminal = [f"~/themes/{theme_dir.name} $ ls", "colors.toml  preview.png  theme.json", "waybar.css   btop.theme    neovim.lua", "", f"~/themes/{theme_dir.name} $ inspect", "workspace: generated", "status: ready"]
-    y = 370
-    for line in terminal:
-        color = accent if line.startswith("~/") else c2 if "ready" in line else code_text
-        draw.text((934, y), fit(draw, line, mono_font, 318), fill=color, font=mono_font)
-        y += 20
-    card = (914, 548, 1272, 658)
-    rounded(draw, card, 12, fill=panel2, outline=mix(outline, panel, 0.4))
-    draw.text((934, 570), fit(draw, title(theme_dir.name), title_font, 310), fill=text, font=title_font)
-    draw.text((934, 606), ("Light" if light else "Dark") + " theme - workspace preview", fill=muted, font=tiny_font)
-    for idx, color in enumerate(swatches):
-        x = 934 + idx * 36
-        draw.rounded_rectangle((x, 628, x + 24, 652), radius=6, fill=color, outline=mix(color, (220, 220, 220), 0.30))
-    return image
-
-theme_dirs = []
-seen = set()
-for root in roots:
-    for child in sorted(root.iterdir()):
-        if child.is_dir() and child.name not in seen:
-            seen.add(child.name)
-            theme_dirs.append(child)
-
-for theme_dir in theme_dirs:
-    preview = theme_dir / "preview.png"
-    manifest.append({"theme": theme_dir.name, "preview": str(preview), "action": "would-generate" if dry_run else "generated"})
-    if dry_run:
-        print(f"would generate {preview}")
-        continue
-    backup_dir = backup_root / theme_dir.name
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    if preview.exists():
-        shutil.copy2(preview, backup_dir / "preview.png")
-    preview_for(theme_dir).save(preview, "PNG", optimize=True)
-    print(f"generated {preview}")
-
-if not dry_run:
-    (backup_root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(f"backup {backup_root}")
-PY
+  "$python_cmd" "$THEME_LAUNCHER_PYTHON_DIR/generate_previews.py" \
+    "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" \
+    "$THEME_LAUNCHER_THEMES_DIR" \
+    "$THEME_LAUNCHER_STATE_DIR" \
+    "$dry_run" \
+    "$replace"
 }
 
+
 theme_launcher_audit_themes() {
-  python3 - "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" "$THEME_LAUNCHER_THEMES_DIR" <<'PY'
-import json
-import re
-import sys
-from pathlib import Path
-
-try:
-    from PIL import Image
-except Exception:
-    Image = None
-
-roots = []
-for raw in sys.argv[1:3]:
-    root = Path(raw)
-    if root.exists() and root.is_dir() and root not in roots:
-        roots.append(root)
-
-required_colors = {"background", "foreground", "accent"}
-color_pattern = re.compile(r'^\s*([A-Za-z0-9_]+)\s*=\s*["\']?(#[0-9A-Fa-f]{6})')
-
-def colors_for(path):
-    colors = {}
-    if not path.exists():
-        return colors
-    for line in path.read_text(errors="ignore").splitlines():
-        match = color_pattern.match(line)
-        if match:
-            colors[match.group(1)] = match.group(2)
-    return colors
-
-seen = set()
-issues = []
-for root in roots:
-    for theme_dir in sorted(path for path in root.iterdir() if path.is_dir()):
-        if theme_dir.name in seen:
-            continue
-        seen.add(theme_dir.name)
-        colors = colors_for(theme_dir / "colors.toml")
-        missing_colors = sorted(required_colors - set(colors))
-        if missing_colors:
-            issues.append({"theme": theme_dir.name, "level": "fail", "issue": "missing-colors", "detail": ", ".join(missing_colors)})
-
-        preview = theme_dir / "preview.png"
-        if not preview.exists():
-            issues.append({"theme": theme_dir.name, "level": "warn", "issue": "missing-preview", "detail": str(preview)})
-        elif Image is not None:
-            try:
-                size = Image.open(preview).size
-                if size != (1366, 768):
-                    issues.append({"theme": theme_dir.name, "level": "warn", "issue": "nonstandard-preview-size", "detail": f"{size[0]}x{size[1]}"})
-            except Exception as exc:
-                issues.append({"theme": theme_dir.name, "level": "fail", "issue": "invalid-preview", "detail": str(exc)})
-
-        metadata = {}
-        metadata_file = theme_dir / "theme.json"
-        if metadata_file.exists():
-            try:
-                parsed = json.loads(metadata_file.read_text())
-                metadata = parsed if isinstance(parsed, dict) else {}
-            except Exception as exc:
-                issues.append({"theme": theme_dir.name, "level": "fail", "issue": "invalid-theme-json", "detail": str(exc)})
-        if not metadata.get("description") or metadata.get("description") == "Imported theme.":
-            issues.append({"theme": theme_dir.name, "level": "info", "issue": "weak-description", "detail": "description is missing or generic"})
-
-        backgrounds = theme_dir / "backgrounds"
-        if backgrounds.exists():
-            for item in backgrounds.iterdir():
-                if item.is_file() and "omarchy" in item.name.lower():
-                    issues.append({"theme": theme_dir.name, "level": "warn", "issue": "branded-background-name", "detail": item.name})
-
-for item in issues:
-    print(f"{item['level'].upper()} {item['theme']}: {item['issue']} - {item['detail']}")
-if not issues:
-    print("No import cleanup issues found.")
-PY
+  theme_launcher_require python3
+  python3 "$THEME_LAUNCHER_PYTHON_DIR/audit_themes.py" \
+    "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" \
+    "$THEME_LAUNCHER_THEMES_DIR"
 }
 
 theme_launcher_check_path_write() {
@@ -1284,13 +899,7 @@ theme_launcher_check_theme_assets() {
   if [[ ! -f "$theme_dir/preview.png" ]]; then
     theme_launcher_doctor_warn "theme:$theme_name" "missing preview.png"
   elif python_cmd="$(theme_launcher_python_pillow_command 2>/dev/null)"; then
-    if ! "$python_cmd" - "$theme_dir/preview.png" <<'PY' >/dev/null 2>&1
-import sys
-from PIL import Image
-image = Image.open(sys.argv[1])
-raise SystemExit(0 if image.size == (1366, 768) else 1)
-PY
-    then
+    if ! "$python_cmd" "$THEME_LAUNCHER_PYTHON_DIR/check_preview_size.py" "$theme_dir/preview.png" >/dev/null 2>&1; then
       theme_launcher_doctor_warn "theme:$theme_name" "preview.png should be the standard 1366x768 workspace preview"
     fi
   fi
@@ -1321,12 +930,6 @@ theme_launcher_doctor() {
   local user_theme_supported=0
   local ubuntu_dock_schema=""
   local has_chromium=0
-  local chromium_policy_dirs=(
-    "/etc/chromium/policies/managed"
-    "/etc/chromium/browser/policies/managed"
-    "/etc/opt/chrome/policies/managed"
-    "/etc/brave/policies/managed"
-  )
   local policy_dir
   local chromium_policy_writable=0
 
@@ -1476,15 +1079,12 @@ theme_launcher_doctor() {
     theme_launcher_doctor_warn "ghostty" "not installed; Ghostty integration will be skipped"
   fi
 
-  if command -v chromium-browser >/dev/null 2>&1 \
-    || command -v chromium >/dev/null 2>&1 \
-    || command -v google-chrome >/dev/null 2>&1 \
-    || command -v brave-browser >/dev/null 2>&1; then
+  if theme_launcher_chromium_installed; then
     has_chromium=1
   fi
 
   if [[ "$has_chromium" -eq 1 ]]; then
-    for policy_dir in "${chromium_policy_dirs[@]}"; do
+    for policy_dir in "${THEME_LAUNCHER_CHROMIUM_POLICY_DIRS[@]}"; do
       if [[ -d "$policy_dir" && -w "$policy_dir" ]]; then
         chromium_policy_writable=1
         break
@@ -1535,6 +1135,18 @@ theme_launcher_current() {
 
 theme_launcher_default() {
   [[ -f "$THEME_LAUNCHER_DEFAULT_THEME_FILE" ]] && cat "$THEME_LAUNCHER_DEFAULT_THEME_FILE" || true
+}
+
+theme_launcher_bootstrap() {
+  theme_launcher_require python3
+  python3 "$THEME_LAUNCHER_PYTHON_DIR/bootstrap.py" \
+    "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" \
+    "$THEME_LAUNCHER_THEMES_DIR" \
+    "$THEME_LAUNCHER_FAVORITES_FILE" \
+    "$THEME_LAUNCHER_WALLPAPER_STATE_DIR" \
+    "$THEME_LAUNCHER_THEME_NAME_FILE" \
+    "$THEME_LAUNCHER_WALLPAPER_NAME_FILE" \
+    "$THEME_LAUNCHER_DEFAULT_THEME_FILE"
 }
 
 theme_launcher_set_default_theme() {
@@ -1594,6 +1206,25 @@ theme_launcher_color_value() {
   ' "$colors_file"
 }
 
+theme_launcher_load_colors_into() {
+  local colors_file="$1"
+  local -n target="$2"
+  local line key value
+
+  [[ -f "$colors_file" ]] || return 1
+  target=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    key="${key//[\"\'[:space:]]/}"
+    [[ -n "$key" && "${key:0:1}" != "#" ]] || continue
+    value="${line#*=}"
+    value="${value//[\"\'[:space:]]/}"
+    [[ -n "$value" ]] || continue
+    target[$key]="$value"
+  done <"$colors_file"
+}
+
 theme_launcher_fastfetch_color() {
   local value="$1"
   local fallback="$2"
@@ -1626,7 +1257,12 @@ theme_launcher_fastfetch_format_color() {
 }
 
 theme_launcher_escape_sed_replacement() {
-  printf "%s" "$1" | sed -e 's/[\/&|]/\\&/g'
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\//\\/}"
+  s="${s//&/\\&}"
+  s="${s//|/\\|}"
+  printf "%s" "$s"
 }
 
 theme_launcher_write_marked_block() {
@@ -1655,12 +1291,10 @@ theme_launcher_write_marked_block() {
     '
     $0 == begin || (legacy_begin != "" && $0 == legacy_begin) { skip=1; next }
     $0 == end || (legacy_end != "" && $0 == legacy_end) { skip=0; next }
-    skip != 1 { print }
+    skip == 1 { next }
+    /^[[:space:]]*$/ { blanks=blanks $0 "\n"; next }
+    { printf "%s%s\n", blanks, $0; blanks="" }
   ' "$file" >"$tmp"
-
-  while [[ -s "$tmp" ]] && tail -n 1 "$tmp" | grep -q '^[[:space:]]*$'; do
-    sed -i '${ /^[[:space:]]*$/d; }' "$tmp"
-  done
 
   if [[ -s "$tmp" ]]; then
     printf "\n" >>"$tmp"
@@ -1804,14 +1438,16 @@ theme_launcher_generate_tmux_config() {
   local background
   local muted
   local active
+  local -A _colors
 
   [[ -f "$colors_file" ]] || return 0
+  theme_launcher_load_colors_into "$colors_file" _colors
 
-  accent="$(theme_launcher_color_value "$colors_file" accent)"
-  foreground="$(theme_launcher_color_value "$colors_file" foreground)"
-  background="$(theme_launcher_color_value "$colors_file" background)"
-  muted="$(theme_launcher_color_value "$colors_file" color8)"
-  active="$(theme_launcher_color_value "$colors_file" color4)"
+  accent="${_colors[accent]:-}"
+  foreground="${_colors[foreground]:-}"
+  background="${_colors[background]:-}"
+  muted="${_colors[color8]:-}"
+  active="${_colors[color4]:-}"
 
   cat >"$THEME_LAUNCHER_NEXT_DIR/tmux.conf" <<EOF
 # Generated by theme-launcher
@@ -1847,17 +1483,19 @@ theme_launcher_generate_lazygit_config() {
   local warning
   local danger
   local secondary
+  local -A _colors
 
   [[ -f "$colors_file" ]] || return 0
+  theme_launcher_load_colors_into "$colors_file" _colors
 
-  accent="$(theme_launcher_color_value "$colors_file" accent)"
-  foreground="$(theme_launcher_color_value "$colors_file" foreground)"
-  background="$(theme_launcher_color_value "$colors_file" background)"
-  muted="$(theme_launcher_color_value "$colors_file" color8)"
-  success="$(theme_launcher_color_value "$colors_file" color2)"
-  warning="$(theme_launcher_color_value "$colors_file" color3)"
-  danger="$(theme_launcher_color_value "$colors_file" color1)"
-  secondary="$(theme_launcher_color_value "$colors_file" color6)"
+  accent="${_colors[accent]:-}"
+  foreground="${_colors[foreground]:-}"
+  background="${_colors[background]:-}"
+  muted="${_colors[color8]:-}"
+  success="${_colors[color2]:-}"
+  warning="${_colors[color3]:-}"
+  danger="${_colors[color1]:-}"
+  secondary="${_colors[color6]:-}"
 
   cat >"$THEME_LAUNCHER_NEXT_DIR/lazygit.yml" <<EOF
 # Generated by theme-launcher
@@ -1928,16 +1566,18 @@ theme_launcher_generate_fastfetch_config() {
   local foreground_format
   local muted_format
   local theme_name
+  local -A _colors
 
   [[ -f "$colors_file" ]] || return 0
+  theme_launcher_load_colors_into "$colors_file" _colors
 
-  accent="$(theme_launcher_color_value "$colors_file" accent)"
-  foreground="$(theme_launcher_color_value "$colors_file" foreground)"
-  success="$(theme_launcher_color_value "$colors_file" color2)"
-  warning="$(theme_launcher_color_value "$colors_file" color3)"
-  danger="$(theme_launcher_color_value "$colors_file" color1)"
-  secondary="$(theme_launcher_color_value "$colors_file" color6)"
-  muted="$(theme_launcher_color_value "$colors_file" color8)"
+  accent="${_colors[accent]:-}"
+  foreground="${_colors[foreground]:-}"
+  success="${_colors[color2]:-}"
+  warning="${_colors[color3]:-}"
+  danger="${_colors[color1]:-}"
+  secondary="${_colors[color6]:-}"
+  muted="${_colors[color8]:-}"
   theme_name="$(theme_launcher_display_name "$theme_slug")"
 
   accent_ff="$(theme_launcher_fastfetch_color "$accent" "#00aaff")"
@@ -2048,19 +1688,21 @@ theme_launcher_generate_fzf_shell() {
   local success
   local secondary
   local color_spec
+  local -A _colors
 
   [[ -f "$colors_file" ]] || return 0
+  theme_launcher_load_colors_into "$colors_file" _colors
 
-  accent="$(theme_launcher_color_value "$colors_file" accent)"
-  foreground="$(theme_launcher_color_value "$colors_file" foreground)"
-  background="$(theme_launcher_color_value "$colors_file" background)"
-  selection_fg="$(theme_launcher_color_value "$colors_file" selection_foreground)"
-  selection_bg="$(theme_launcher_color_value "$colors_file" selection_background)"
-  muted="$(theme_launcher_color_value "$colors_file" color8)"
-  warning="$(theme_launcher_color_value "$colors_file" color3)"
-  danger="$(theme_launcher_color_value "$colors_file" color1)"
-  success="$(theme_launcher_color_value "$colors_file" color2)"
-  secondary="$(theme_launcher_color_value "$colors_file" color6)"
+  accent="${_colors[accent]:-}"
+  foreground="${_colors[foreground]:-}"
+  background="${_colors[background]:-}"
+  selection_fg="${_colors[selection_foreground]:-}"
+  selection_bg="${_colors[selection_background]:-}"
+  muted="${_colors[color8]:-}"
+  warning="${_colors[color3]:-}"
+  danger="${_colors[color1]:-}"
+  success="${_colors[color2]:-}"
+  secondary="${_colors[color6]:-}"
 
   color_spec="bg:${background},bg+:${selection_bg},fg:${foreground},fg+:${selection_fg},hl:${accent},hl+:${accent},info:${secondary},prompt:${accent},pointer:${danger},marker:${warning},spinner:${success},header:${muted},border:${muted},label:${secondary},query:${foreground}"
 
@@ -2079,20 +1721,20 @@ theme_launcher_generate_gtk_css() {
   local selection_bg
   local muted
   local secondary_bg
-  local css_file
+  local -A _colors
 
   [[ -f "$colors_file" ]] || return 0
+  theme_launcher_load_colors_into "$colors_file" _colors
 
-  accent="$(theme_launcher_color_value "$colors_file" accent)"
-  foreground="$(theme_launcher_color_value "$colors_file" foreground)"
-  background="$(theme_launcher_color_value "$colors_file" background)"
-  selection_fg="$(theme_launcher_color_value "$colors_file" selection_foreground)"
-  selection_bg="$(theme_launcher_color_value "$colors_file" selection_background)"
-  muted="$(theme_launcher_color_value "$colors_file" color8)"
-  secondary_bg="$(theme_launcher_color_value "$colors_file" color0)"
+  accent="${_colors[accent]:-}"
+  foreground="${_colors[foreground]:-}"
+  background="${_colors[background]:-}"
+  selection_fg="${_colors[selection_foreground]:-}"
+  selection_bg="${_colors[selection_background]:-}"
+  muted="${_colors[color8]:-}"
+  secondary_bg="${_colors[color0]:-}"
 
-  for css_file in "$THEME_LAUNCHER_NEXT_DIR/gtk-3.0.css" "$THEME_LAUNCHER_NEXT_DIR/gtk-4.0.css"; do
-    cat >"$css_file" <<EOF
+  cat >"$THEME_LAUNCHER_NEXT_DIR/gtk-3.0.css" <<EOF
 /* Generated by theme-launcher */
 @define-color accent_color ${accent};
 @define-color accent_bg_color ${accent};
@@ -2166,7 +1808,7 @@ window.nautilus-window undershoot {
   color: @borders;
 }
 EOF
-  done
+  cp -f "$THEME_LAUNCHER_NEXT_DIR/gtk-3.0.css" "$THEME_LAUNCHER_NEXT_DIR/gtk-4.0.css"
 }
 
 theme_launcher_generate_gnome_shell_css() {
@@ -2178,15 +1820,17 @@ theme_launcher_generate_gnome_shell_css() {
   local selection_bg
   local muted
   local shell_css
+  local -A _colors
 
   [[ -f "$colors_file" ]] || return 0
+  theme_launcher_load_colors_into "$colors_file" _colors
 
-  accent="$(theme_launcher_color_value "$colors_file" accent)"
-  foreground="$(theme_launcher_color_value "$colors_file" foreground)"
-  background="$(theme_launcher_color_value "$colors_file" background)"
-  selection_fg="$(theme_launcher_color_value "$colors_file" selection_foreground)"
-  selection_bg="$(theme_launcher_color_value "$colors_file" selection_background)"
-  muted="$(theme_launcher_color_value "$colors_file" color8)"
+  accent="${_colors[accent]:-}"
+  foreground="${_colors[foreground]:-}"
+  background="${_colors[background]:-}"
+  selection_fg="${_colors[selection_foreground]:-}"
+  selection_bg="${_colors[selection_background]:-}"
+  muted="${_colors[color8]:-}"
   shell_css="$THEME_LAUNCHER_NEXT_DIR/gnome-shell.css"
 
   cat >"$shell_css" <<EOF
@@ -2577,9 +2221,23 @@ theme_launcher_set_editor_theme() {
 
   [[ -n "$theme_name" ]] || return 0
 
-  if [[ -n "$extension" ]] && ! "$editor_cmd" --list-extensions 2>/dev/null | grep -Fxq "$extension"; then
-    if ! "$editor_cmd" --install-extension "$extension" >/dev/null 2>&1; then
-      theme_launcher_warn "failed to install $extension for $editor_cmd"
+  if [[ -n "$extension" ]]; then
+    local ext_id="${extension#id:}"
+    ext_id="${ext_id,,}"
+    local marker_dir="$THEME_LAUNCHER_STATE_DIR/extensions"
+    local marker_file="$marker_dir/${editor_cmd}.${ext_id}"
+    if [[ ! -f "$marker_file" ]]; then
+      if "$editor_cmd" --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]' | grep -Fxq "$ext_id"; then
+        mkdir -p "$marker_dir"
+        : >"$marker_file"
+      else
+        if "$editor_cmd" --install-extension "$extension" >/dev/null 2>&1; then
+          mkdir -p "$marker_dir"
+          : >"$marker_file"
+        else
+          theme_launcher_warn "failed to install $extension for $editor_cmd"
+        fi
+      fi
     fi
   fi
 
@@ -2597,21 +2255,11 @@ theme_launcher_apply_chromium() {
   local chromium_theme_file="$THEME_LAUNCHER_CURRENT_DIR/chromium.theme"
   local rgb_value r g b background_hex
   local policy_json
-  local policy_dirs=(
-    "/etc/chromium/policies/managed"
-    "/etc/chromium/browser/policies/managed"
-    "/etc/opt/chrome/policies/managed"
-    "/etc/brave/policies/managed"
-  )
   local applied=0
   local dir
 
   theme_launcher_risky_target_enabled "chromium" || return 0
-  command -v chromium-browser >/dev/null 2>&1 \
-    || command -v chromium >/dev/null 2>&1 \
-    || command -v google-chrome >/dev/null 2>&1 \
-    || command -v brave-browser >/dev/null 2>&1 \
-    || return 0
+  theme_launcher_chromium_installed || return 0
 
   [[ -f "$chromium_theme_file" ]] || return 0
   rgb_value="$(<"$chromium_theme_file")"
@@ -2622,7 +2270,7 @@ theme_launcher_apply_chromium() {
 
   policy_json="{\"BrowserThemeColor\": \"${background_hex}\"}"
 
-  for dir in "${policy_dirs[@]}"; do
+  for dir in "${THEME_LAUNCHER_CHROMIUM_POLICY_DIRS[@]}"; do
     if [[ -d "$dir" && -w "$dir" ]]; then
       printf "%s\n" "$policy_json" >"$dir/theme-launcher.json"
       applied=1

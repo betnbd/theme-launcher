@@ -146,6 +146,9 @@ case "$command_name" in
       theme_launcher_all_theme_metadata
     fi
     ;;
+  bootstrap)
+    theme_launcher_bootstrap
+    ;;
   favorite)
     shift || true
     subcommand="${1:-list}"

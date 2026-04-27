@@ -1,4 +1,5 @@
 *.log
+__pycache__/
 .DS_Store
 .direnv/
 tmp/

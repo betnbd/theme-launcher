@@ -19,6 +19,7 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 CLI = SCRIPT_DIR / "theme-launcher"
+APP_CSS_PATH = SCRIPT_DIR.parent / "lib" / "gui-style.css"
 PREVIEW_DELAY_MS = 140
 SEARCH_FILTER_DELAY_MS = 120
 APPLY_ENV = {"THEME_LAUNCHER_RELOAD_GHOSTTY": "1"}
@@ -34,279 +35,6 @@ MAX_RECENT_THEMES = 12
 PREVIEW_CACHE_LIMIT = 24
 WALLPAPER_THUMB_WIDTH = 128
 WALLPAPER_THUMB_HEIGHT = 72
-APP_CSS = """
-window.theme-launcher {
-  background:
-    radial-gradient(circle at top right, alpha(@accent_bg_color, 0.16), transparent 34%),
-    linear-gradient(180deg, alpha(@theme_bg_color, 0.99), alpha(@theme_bg_color, 0.95));
-}
-
-box.app-shell {
-  padding: 4px;
-}
-
-box.content-split {
-  min-height: 0;
-}
-
-box.list-panel {
-  min-height: 0;
-}
-
-box.header-panel,
-box.status-panel,
-box.action-panel,
-box.preview-panel,
-box.filter-panel,
-box.preview-actions,
-box.search-panel {
-  border-radius: 14px;
-  border: 1px solid alpha(@theme_fg_color, 0.08);
-  background: alpha(@theme_fg_color, 0.035);
-}
-
-box.header-panel {
-  padding: 14px 16px;
-}
-
-label.window-title {
-  font-size: 1.2rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-label.window-subtitle {
-  line-height: 1.35;
-}
-
-listbox.theme-list {
-  background: transparent;
-}
-
-row.theme-row {
-  margin: 0 0 5px 0;
-  transition: 180ms ease;
-  background: transparent;
-  border-radius: 0;
-  padding: 0;
-}
-
-row.theme-row:selected {
-  background: transparent;
-  box-shadow: none;
-  outline: none;
-}
-
-row.theme-row > box {
-  border-radius: 4px;
-  border: 1px solid alpha(@theme_fg_color, 0.12);
-  background: alpha(@theme_fg_color, 0.035);
-  box-shadow: 0 4px 14px alpha(black, 0.03);
-  transition: 180ms ease;
-  margin: 0;
-}
-
-row.theme-row:selected > box,
-row.theme-row > box:hover {
-  background: alpha(@accent_bg_color, 0.10);
-  border-color: alpha(@theme_fg_color, 0.46);
-  box-shadow: 0 8px 20px alpha(@theme_fg_color, 0.08);
-}
-
-row.theme-row.current > box {
-  background: alpha(@accent_bg_color, 0.12);
-  border-color: alpha(@theme_fg_color, 0.58);
-}
-
-row.theme-row.pending > box {
-  background: alpha(@accent_bg_color, 0.16);
-  border-color: alpha(@theme_fg_color, 0.7);
-}
-
-label.theme-title {
-  font-size: 1rem;
-  font-weight: 600;
-}
-
-row.theme-row:selected label.theme-title,
-row.theme-row.current label.theme-title,
-row.theme-row.pending label.theme-title {
-  color: @theme_fg_color;
-}
-
-label.theme-meta {
-  font-size: 0.88rem;
-  min-height: 0;
-}
-
-row.theme-row:selected label.theme-meta,
-row.theme-row.current label.theme-meta,
-row.theme-row.pending label.theme-meta {
-  color: alpha(@theme_fg_color, 0.82);
-}
-
-label.theme-badge {
-  border-radius: 999px;
-  padding: 3px 9px;
-  background: alpha(@theme_fg_color, 0.06);
-  color: alpha(@theme_fg_color, 0.78);
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-label.theme-badge.current-badge {
-  background: alpha(@theme_fg_color, 0.08);
-  color: @theme_fg_color;
-}
-
-label.theme-badge.default-badge {
-  background: alpha(@success_color, 0.14);
-}
-
-label.theme-badge.pending-badge {
-  background: alpha(@warning_color, 0.16);
-}
-
-box.status-panel {
-  padding: 8px 12px;
-}
-
-label.status-label {
-  min-height: 20px;
-  font-weight: 500;
-}
-
-spinner.status-spinner {
-  min-width: 18px;
-  min-height: 18px;
-}
-
-box.action-panel {
-  padding: 10px 12px;
-}
-
-box.filter-panel {
-  padding: 8px 12px;
-}
-
-box.search-panel {
-  padding: 10px 12px;
-}
-
-box.filter-panel {
-  margin-top: 8px;
-}
-
-box.preview-panel {
-  padding: 12px;
-}
-
-frame.preview-frame {
-  border-radius: 18px;
-  border: 1px solid alpha(@theme_fg_color, 0.1);
-  background: alpha(@theme_fg_color, 0.03);
-}
-
-picture.preview-image {
-  border-radius: 16px;
-}
-
-label.preview-title {
-  font-size: 1.02rem;
-  font-weight: 700;
-}
-
-label.preview-meta,
-label.preview-description {
-  line-height: 1.35;
-}
-
-label.preview-badge {
-  border-radius: 999px;
-  padding: 4px 10px;
-  background: alpha(@accent_bg_color, 0.14);
-  color: @theme_fg_color;
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-button.action-button {
-  border-radius: 999px;
-  min-width: 108px;
-  padding: 8px 18px;
-  transition: 160ms ease;
-}
-
-button.action-button:disabled {
-  opacity: 0.65;
-}
-
-popover.menu-popover contents {
-  padding: 6px;
-}
-
-button.menu-button {
-  border-radius: 12px;
-  padding: 8px 12px;
-}
-
-button.filter-button {
-  border-radius: 999px;
-  padding: 6px 14px;
-}
-
-entry.filter-entry {
-  min-width: 170px;
-  border-radius: 999px;
-}
-
-box.search-panel entry.filter-entry {
-  min-width: 0;
-}
-
-box.preview-actions {
-  padding: 8px;
-}
-
-button.preview-action-button {
-  border-radius: 999px;
-  padding: 6px 14px;
-}
-
-box.wallpaper-panel {
-  padding: 8px 10px;
-}
-
-dropdown.wallpaper-dropdown {
-  min-width: 220px;
-}
-
-button.wallpaper-randomize {
-  border-radius: 999px;
-  padding: 6px 12px;
-}
-
-button.wallpaper-browse,
-button.details-button {
-  border-radius: 999px;
-  padding: 6px 12px;
-}
-
-button.wallpaper-thumb {
-  padding: 6px;
-}
-
-box.preview-mode-switcher {
-  padding: 6px;
-}
-
-button.preview-mode-button {
-  border-radius: 999px;
-  padding: 5px 12px;
-}
-"""
 
 
 def run_cli(*args, check=True, extra_env=None):
@@ -838,7 +566,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
 
     def _install_css(self):
         provider = Gtk.CssProvider()
-        provider.load_from_data(APP_CSS.encode("utf-8"))
+        provider.load_from_data(APP_CSS_PATH.read_bytes())
         display = Gdk.Display.get_default()
         if display is not None:
             Gtk.StyleContext.add_provider_for_display(
@@ -849,16 +577,17 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
 
     def load_themes(self):
         started = time.monotonic()
-        self.reload_metadata()
-        themes = [line for line in run_cli("list").stdout.splitlines() if line]
-        self.current_theme = run_cli("current", check=False).stdout.strip()
+        bootstrap = json.loads(run_cli("bootstrap").stdout)
+        self.theme_metadata = {item["slug"]: item for item in bootstrap["metadata"]}
+        themes = list(self.theme_metadata)
+        self.current_theme = bootstrap.get("current", "")
         self.initial_theme = self.current_theme
         self.current_wallpaper = (
             self.metadata_for(self.current_theme).get("current_wallpaper")
             or self.metadata_for(self.current_theme).get("selected_wallpaper", "")
         )
         self.initial_wallpaper = self.current_wallpaper
-        self.default_theme = run_cli("default", check=False).stdout.strip()
+        self.default_theme = bootstrap.get("default", "")
 
         for theme in themes:
             row = ThemeRow(theme, self)
@@ -1531,8 +1260,10 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             result = run_cli("favorite", "toggle", theme)
         except RuntimeError:
             return
-        self.reload_metadata()
         action = result.stdout.strip() or "updated"
+        item = self.theme_metadata.get(theme)
+        if item is not None:
+            item["favorite"] = action == "added"
         self.set_status(f"Favorite {action} for {display_name(theme)}", busy=False)
         self.apply_filters(refresh_status=False)
 
@@ -1562,10 +1293,8 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             self._reverting = True
             try:
                 self._run_theme_apply(self.initial_theme, self.initial_wallpaper or None)
-                self.reload_metadata()
                 self.current_theme = self.initial_theme
                 self.current_wallpaper = self.initial_wallpaper
-                self.refresh_rows()
             except RuntimeError:
                 pass
             finally:
@@ -1581,15 +1310,22 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         if self._destroyed:
             return
         self.status_label.set_text(message)
+        if busy == getattr(self, "_status_busy", None):
+            return
+        self._status_busy = busy
         self.spinner.set_spinning(busy)
-        self.apply_button.set_sensitive(not busy)
-        self.preview_favorite_button.set_sensitive(not busy)
-        self.preview_default_button.set_sensitive(not busy)
-        self.wallpaper_dropdown.set_sensitive(not busy)
-        self.wallpaper_browse_button.set_sensitive(not busy)
-        self.wallpaper_randomize_button.set_sensitive(not busy)
-        self.details_button.set_sensitive(not busy)
-        self.desktop_preview_switch.set_sensitive(not busy)
+        sensitive = not busy
+        for widget in (
+            self.apply_button,
+            self.preview_favorite_button,
+            self.preview_default_button,
+            self.wallpaper_dropdown,
+            self.wallpaper_browse_button,
+            self.wallpaper_randomize_button,
+            self.details_button,
+            self.desktop_preview_switch,
+        ):
+            widget.set_sensitive(sensitive)
 
     def on_wallpaper_browse_clicked(self, button):
         theme = self.current_preview_theme()

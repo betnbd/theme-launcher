@@ -47,10 +47,20 @@ date -Iseconds >"$staging_vendor/.synced-at"
 
 mkdir -p "$(dirname "$THEME_LAUNCHER_VENDOR")"
 rm -rf "$THEME_LAUNCHER_VENDOR.previous"
+
+moved_previous=0
 if [[ -d "$THEME_LAUNCHER_VENDOR" ]]; then
   mv "$THEME_LAUNCHER_VENDOR" "$THEME_LAUNCHER_VENDOR.previous"
+  moved_previous=1
 fi
-mv "$staging_vendor" "$THEME_LAUNCHER_VENDOR"
+
+if ! mv "$staging_vendor" "$THEME_LAUNCHER_VENDOR"; then
+  if [[ "$moved_previous" -eq 1 ]]; then
+    mv "$THEME_LAUNCHER_VENDOR.previous" "$THEME_LAUNCHER_VENDOR" || true
+  fi
+  theme_launcher_fail "failed to install new catalog into $THEME_LAUNCHER_VENDOR"
+fi
+
 rm -rf "$THEME_LAUNCHER_VENDOR.previous"
 
 printf "Synced %s themes from %s.\n" \
