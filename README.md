@@ -191,7 +191,3 @@ bash -n bin/theme-launcher lib/theme-launcher.sh bin/theme-sync
 python3 -m py_compile bin/theme-launcher-gui lib/python/*.py tests/*.py
 python3 -m unittest discover -s tests -v
 ```
-
-## Scope
-
-This is a personal workstation utility, not a general-purpose theme platform. It favors practical local coverage and fast iteration over broad portability.
