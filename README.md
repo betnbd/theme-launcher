@@ -4,6 +4,8 @@ Theme Launcher is a local Ubuntu theme switcher for applying a shared theme cata
 
 It is designed for a single workstation workflow: pick a theme, preview it, apply the matching desktop/app colors, and keep enough state to move back to the previous or default theme quickly.
 
+![Theme Launcher GTK app screenshot](docs/assets/theme-launcher-screenshot.png)
+
 ## What It Themes
 
 - GNOME color mode, icons, wallpaper, and Ubuntu Dock when supported by the current GNOME build
