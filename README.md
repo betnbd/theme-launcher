@@ -16,12 +16,27 @@ It is designed for a single workstation workflow: pick a theme, preview it, appl
 
 ## Quick Start
 
-The usual local flow is:
+Install the system packages used by the CLI, GTK launcher, metadata tools, and preview generator:
 
 ```bash
-theme-launcher gui
+sudo apt install bash curl fzf jq tar python3 python3-gi gir1.2-gtk-4.0 gir1.2-gdkpixbuf-2.0 python3-pil
+```
+
+Download the repo and put the launcher on your `PATH`:
+
+```bash
+git clone https://github.com/betnbd/theme-launcher.git
+cd theme-launcher
+mkdir -p ~/.local/bin
+ln -sfn "$PWD/bin/theme-launcher" ~/.local/bin/theme-launcher
+ln -sfn "$PWD/bin/theme-sync" ~/.local/bin/theme-sync
+```
+
+Make sure `~/.local/bin` is on your `PATH`, then run:
+
+```bash
 theme-launcher doctor
-theme-launcher apply-default
+theme-launcher gui
 ```
 
 If the command is not already on `PATH`, run it from the repository:
@@ -30,6 +45,8 @@ If the command is not already on `PATH`, run it from the repository:
 ./bin/theme-launcher gui
 ./bin/theme-launcher doctor
 ```
+
+Theme Launcher does not bundle a theme catalog. Add compatible themes under `~/.local/share/theme-launcher/themes`, or configure `theme-launcher sync` with a catalog archive as described below.
 
 ## Commands
 
@@ -90,7 +107,17 @@ Custom local overrides can live in:
 ~/.local/share/theme-launcher/themes
 ```
 
-Each theme may include an optional `theme.json`. When it is missing, the launcher infers:
+Each theme directory must include a `colors.toml` with at least:
+
+```toml
+background = "#1e1e2e"
+foreground = "#cdd6f4"
+accent = "#89b4fa"
+```
+
+Optional theme files include `preview.png`, `gtk.css`, `ghostty.conf`, `btop.theme`, `neovim.lua`, `vscode.json`, `chromium.theme`, `icons.theme`, and a `backgrounds/` directory.
+
+Each theme may also include an optional `theme.json`. When it is missing, the launcher infers:
 
 - display name from the theme slug
 - variant from `light.mode`
@@ -156,6 +183,14 @@ THEME_LAUNCHER_ENABLE_CHROMIUM=1
 - `bin/theme-launcher-gui`: GTK launcher
 - `bin/theme-sync`: catalog sync entrypoint
 - `lib/theme-launcher.sh`: shared runtime library
+
+## Development Checks
+
+```bash
+bash -n bin/theme-launcher lib/theme-launcher.sh bin/theme-sync
+python3 -m py_compile bin/theme-launcher-gui lib/python/*.py tests/*.py
+python3 -m unittest discover -s tests -v
+```
 
 ## Scope
 

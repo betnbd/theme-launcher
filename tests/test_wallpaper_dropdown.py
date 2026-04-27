@@ -1,12 +1,25 @@
 import os
 import subprocess
-import sys
 import textwrap
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def gtk_python_command():
+    script = "source ./lib/theme-launcher.sh && theme_launcher_python_gtk_command"
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AssertionError(result.stderr.strip() or result.stdout.strip())
+    return result.stdout.strip()
 
 
 class WallpaperDropdownTest(unittest.TestCase):
@@ -52,7 +65,7 @@ class WallpaperDropdownTest(unittest.TestCase):
         )
 
         result = subprocess.run(
-            [sys.executable, "-c", harness],
+            [gtk_python_command(), "-c", harness],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -120,7 +133,7 @@ class WallpaperDropdownTest(unittest.TestCase):
         )
 
         result = subprocess.run(
-            [sys.executable, "-c", harness],
+            [gtk_python_command(), "-c", harness],
             cwd=ROOT,
             capture_output=True,
             text=True,

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-04-27
+
+- Added public install, dependency, theme-catalog, and validation notes to the README.
+- Kept GTK preview images on a fixed-size canvas so theme details do not resize when previews have different aspect ratios.
+- Updated GUI tests to use the same GTK-capable Python interpreter discovery as the launcher.
+
 ## 2026-04-23
 
 - Hardened GNOME session and schema detection for Ubuntu 26.04 / GNOME 50.
