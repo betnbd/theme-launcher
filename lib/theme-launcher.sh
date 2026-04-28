@@ -3,8 +3,10 @@
 set -euo pipefail
 
 THEME_LAUNCHER_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+THEME_LAUNCHER_PROJECT_ROOT="$(cd "$THEME_LAUNCHER_LIB_DIR/.." && pwd)"
 THEME_LAUNCHER_PYTHON_DIR="$THEME_LAUNCHER_LIB_DIR/python"
 THEME_LAUNCHER_HOME="${THEME_LAUNCHER_HOME:-$HOME/.local/share/theme-launcher}"
+THEME_LAUNCHER_BUNDLED_THEMES_DIR="${THEME_LAUNCHER_BUNDLED_THEMES_DIR:-$THEME_LAUNCHER_PROJECT_ROOT/catalog/themes}"
 THEME_LAUNCHER_VENDOR_ROOT="$THEME_LAUNCHER_HOME/vendor"
 THEME_LAUNCHER_VENDOR_CATALOG="$THEME_LAUNCHER_VENDOR_ROOT/catalog"
 THEME_LAUNCHER_VENDOR_FALLBACK=""
@@ -254,6 +256,11 @@ theme_launcher_theme_exists() {
 
 theme_launcher_theme_roots() {
   printf "%s\n" "$THEME_LAUNCHER_CUSTOM_THEMES_DIR"
+
+  if [[ -d "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" &&
+    "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" != "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" ]]; then
+    printf "%s\n" "$THEME_LAUNCHER_BUNDLED_THEMES_DIR"
+  fi
 
   if [[ "$THEME_LAUNCHER_THEMES_DIR" != "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" ]]; then
     printf "%s\n" "$THEME_LAUNCHER_THEMES_DIR"
@@ -755,6 +762,7 @@ theme_launcher_all_theme_metadata() {
   theme_launcher_require python3
   python3 "$THEME_LAUNCHER_PYTHON_DIR/all_theme_metadata.py" \
     "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" \
+    "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" \
     "$THEME_LAUNCHER_THEMES_DIR" \
     "$THEME_LAUNCHER_FAVORITES_FILE" \
     "$THEME_LAUNCHER_WALLPAPER_STATE_DIR" \
@@ -956,10 +964,16 @@ theme_launcher_doctor() {
     theme_launcher_doctor_warn "theme-catalog-path" "using fallback vendor path: $THEME_LAUNCHER_VENDOR_FALLBACK"
   fi
 
-  if [[ -d "$THEME_LAUNCHER_THEMES_DIR" ]]; then
-    theme_launcher_doctor_pass "themes-dir" "$THEME_LAUNCHER_THEMES_DIR"
+  if [[ -d "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" ]]; then
+    theme_launcher_doctor_pass "bundled-themes-dir" "$THEME_LAUNCHER_BUNDLED_THEMES_DIR"
   else
-    theme_launcher_doctor_fail "themes-dir" "missing: $THEME_LAUNCHER_THEMES_DIR"
+    theme_launcher_doctor_warn "bundled-themes-dir" "missing: $THEME_LAUNCHER_BUNDLED_THEMES_DIR"
+  fi
+
+  if [[ -d "$THEME_LAUNCHER_THEMES_DIR" ]]; then
+    theme_launcher_doctor_pass "synced-themes-dir" "$THEME_LAUNCHER_THEMES_DIR"
+  else
+    theme_launcher_doctor_warn "synced-themes-dir" "missing: $THEME_LAUNCHER_THEMES_DIR"
   fi
 
   if [[ -d "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" ]]; then
@@ -1141,6 +1155,7 @@ theme_launcher_bootstrap() {
   theme_launcher_require python3
   python3 "$THEME_LAUNCHER_PYTHON_DIR/bootstrap.py" \
     "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" \
+    "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" \
     "$THEME_LAUNCHER_THEMES_DIR" \
     "$THEME_LAUNCHER_FAVORITES_FILE" \
     "$THEME_LAUNCHER_WALLPAPER_STATE_DIR" \

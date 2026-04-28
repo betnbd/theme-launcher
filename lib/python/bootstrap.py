@@ -12,9 +12,11 @@ metadata = collect_theme_metadata(
     Path(sys.argv[4]),
     Path(sys.argv[5]),
     Path(sys.argv[6]),
+    Path(sys.argv[7]),
+    Path(sys.argv[8]),
 )
-default_theme = read_text(Path(sys.argv[7]))
-current_theme = read_text(Path(sys.argv[5]))
+default_theme = read_text(Path(sys.argv[8]))
+current_theme = read_text(Path(sys.argv[6]))
 
 print(
     json.dumps(

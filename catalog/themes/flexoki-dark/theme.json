@@ -1,0 +1,13 @@
+{
+  "badges": [
+    "base-catalog"
+  ],
+  "description": "Minimal dark theme with warm neutral tones.",
+  "name": "Flexoki Dark",
+  "preview": "preview.png",
+  "tags": [
+    "base-catalog",
+    "extra-theme"
+  ],
+  "variant": "dark"
+}

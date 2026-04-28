@@ -1,0 +1,13 @@
+{
+  "badges": [
+    "base-catalog"
+  ],
+  "description": "Low-contrast light theme with balanced terminal colors.",
+  "name": "Solarized Light",
+  "preview": "preview.png",
+  "tags": [
+    "base-catalog",
+    "extra-theme"
+  ],
+  "variant": "light"
+}

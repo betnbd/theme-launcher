@@ -1,0 +1,11 @@
+{
+  "badges": [
+    "base-catalog"
+  ],
+  "description": "Soft dark theme with warm pastel accents.",
+  "name": "Catppuccin",
+  "tags": [
+    "base-catalog"
+  ],
+  "variant": "dark"
+}

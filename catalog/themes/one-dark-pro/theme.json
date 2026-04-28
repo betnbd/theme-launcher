@@ -1,0 +1,13 @@
+{
+  "badges": [
+    "base-catalog"
+  ],
+  "description": "Editor-focused dark theme with clear syntax colors.",
+  "name": "One Dark Pro",
+  "preview": "preview.png",
+  "tags": [
+    "base-catalog",
+    "extra-theme"
+  ],
+  "variant": "dark"
+}

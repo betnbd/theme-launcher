@@ -1,0 +1,13 @@
+{
+  "badges": [
+    "base-catalog"
+  ],
+  "description": "Minimal dark grayscale theme.",
+  "name": "Monochrome",
+  "preview": "preview.png",
+  "tags": [
+    "base-catalog",
+    "extra-theme"
+  ],
+  "variant": "dark"
+}

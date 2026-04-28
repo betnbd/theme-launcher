@@ -12,6 +12,7 @@ metadata = collect_theme_metadata(
     Path(sys.argv[4]),
     Path(sys.argv[5]),
     Path(sys.argv[6]),
+    Path(sys.argv[7]),
 )
 
 print(json.dumps(metadata, separators=(",", ":")))

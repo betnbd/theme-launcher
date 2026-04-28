@@ -27,9 +27,9 @@ def theme_variant(theme_dir, custom):
     return "light" if (theme_dir / "light.mode").exists() else "dark"
 
 
-def theme_roots(custom_root, vendor_root):
+def theme_roots(*candidate_roots):
     roots = []
-    for root in (custom_root, vendor_root):
+    for root in candidate_roots:
         if root.exists() and root.is_dir() and root not in roots:
             roots.append(root)
     return roots
@@ -97,13 +97,14 @@ def wallpapers_for(theme_dir):
 
 def collect_theme_metadata(
     custom_root,
+    bundled_root,
     vendor_root,
     favorites_file,
     wallpaper_state_dir,
     current_theme_file,
     current_wallpaper_file,
 ):
-    roots = theme_roots(custom_root, vendor_root)
+    roots = theme_roots(custom_root, bundled_root, vendor_root)
     favorites = load_favorites(favorites_file)
     current_theme = read_text(current_theme_file)
     current_wallpaper = read_text(current_wallpaper_file)
@@ -149,10 +150,19 @@ def collect_theme_metadata(
                 if slug == current_theme and current_wallpaper
                 else None,
                 "favorite": slug in favorites,
-                "source": "custom" if str(theme_dir).startswith(str(custom_root)) else "vendor",
+                "source": source_for(theme_dir, custom_root, bundled_root),
                 "path": str(theme_dir),
                 "targets": targets(theme_dir),
             }
         )
 
     return items
+
+
+def source_for(theme_dir, custom_root, bundled_root):
+    theme_path = str(theme_dir)
+    if theme_path.startswith(str(custom_root)):
+        return "custom"
+    if theme_path.startswith(str(bundled_root)):
+        return "bundled"
+    return "vendor"

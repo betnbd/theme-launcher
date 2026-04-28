@@ -48,7 +48,7 @@ If the command is not already on `PATH`, run it from the repository:
 ./bin/theme-launcher doctor
 ```
 
-Theme Launcher does not bundle a theme catalog. Add compatible themes under `~/.local/share/theme-launcher/themes`, or configure `theme-launcher sync` with a catalog archive as described below.
+Theme Launcher ships with a small base catalog under `catalog/themes`. Add your own compatible themes under `~/.local/share/theme-launcher/themes`, or configure `theme-launcher sync` with a larger catalog archive as described below.
 
 ## Commands
 
@@ -94,6 +94,14 @@ Runtime state and synced themes live under:
 ```text
 ~/.local/share/theme-launcher
 ```
+
+The repository includes a base catalog of 25 themes in:
+
+```text
+catalog/themes
+```
+
+Each bundled theme includes a palette, generated workspace preview, and one wallpaper. Local themes in `~/.local/share/theme-launcher/themes` override bundled themes with the same slug.
 
 `theme-launcher sync` expects these environment variables when pulling a catalog archive:
 
@@ -279,4 +287,10 @@ THEME_LAUNCHER_ENABLE_CHROMIUM=1
 bash -n bin/theme-launcher lib/theme-launcher.sh bin/theme-sync
 python3 -m py_compile bin/theme-launcher-gui lib/python/*.py tests/*.py
 python3 -m unittest discover -s tests -v
+```
+
+GTK application tests are opt-in because they need a responsive graphical session:
+
+```bash
+THEME_LAUNCHER_RUN_GTK_TESTS=1 python3 -m unittest tests.test_wallpaper_dropdown -v
 ```

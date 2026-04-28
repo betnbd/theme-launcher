@@ -2,6 +2,9 @@
 
 ## 2026-04-27
 
+- Added a bundled base catalog with 25 themes, generated previews, and one generated palette wallpaper per theme.
+- Let fresh clones use the bundled catalog without running sync first.
+- Documented custom theme creation and bundled catalog behavior.
 - Added public install, dependency, theme-catalog, and validation notes to the README.
 - Kept GTK preview images on a fixed-size canvas so theme details do not resize when previews have different aspect ratios.
 - Updated GUI tests to use the same GTK-capable Python interpreter discovery as the launcher.

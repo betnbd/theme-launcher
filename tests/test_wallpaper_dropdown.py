@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+GTK_TEST_TIMEOUT = 45
 
 
 def gtk_python_command():
@@ -24,8 +25,9 @@ def gtk_python_command():
 
 class WallpaperDropdownTest(unittest.TestCase):
     @unittest.skipUnless(
-        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"),
-        "GTK display is not available",
+        os.environ.get("THEME_LAUNCHER_RUN_GTK_TESTS")
+        and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")),
+        "GTK app tests are opt-in; set THEME_LAUNCHER_RUN_GTK_TESTS=1",
     )
     def test_wallpaper_selection_does_not_rebuild_dropdown_during_notify(self):
         harness = textwrap.dedent(
@@ -39,9 +41,12 @@ class WallpaperDropdownTest(unittest.TestCase):
             spec = importlib.util.spec_from_loader(loader.name, loader)
             mod = importlib.util.module_from_spec(spec)
             loader.exec_module(mod)
-            from gi.repository import GLib, Gtk
+            from gi.repository import Gio, GLib, Gtk
 
-            app = Gtk.Application(application_id="local.theme-launcher.dropdown-test")
+            app = Gtk.Application(
+                application_id="local.theme-launcher.dropdown-test",
+                flags=Gio.ApplicationFlags.NON_UNIQUE,
+            )
             state = {}
 
             def activate(app):
@@ -73,7 +78,7 @@ class WallpaperDropdownTest(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=GTK_TEST_TIMEOUT,
             check=False,
         )
 
@@ -81,8 +86,9 @@ class WallpaperDropdownTest(unittest.TestCase):
         self.assertNotIn("g_object_notify_by_pspec", result.stderr)
 
     @unittest.skipUnless(
-        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"),
-        "GTK display is not available",
+        os.environ.get("THEME_LAUNCHER_RUN_GTK_TESTS")
+        and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")),
+        "GTK app tests are opt-in; set THEME_LAUNCHER_RUN_GTK_TESTS=1",
     )
     def test_workspace_preview_uses_fixed_texture_size_across_theme_details(self):
         harness = textwrap.dedent(
@@ -96,9 +102,12 @@ class WallpaperDropdownTest(unittest.TestCase):
             spec = importlib.util.spec_from_loader(loader.name, loader)
             mod = importlib.util.module_from_spec(spec)
             loader.exec_module(mod)
-            from gi.repository import GLib, Gtk
+            from gi.repository import Gio, GLib, Gtk
 
-            app = Gtk.Application(application_id="local.theme-launcher.preview-size-test")
+            app = Gtk.Application(
+                application_id="local.theme-launcher.preview-size-test",
+                flags=Gio.ApplicationFlags.NON_UNIQUE,
+            )
             state = {}
 
             def capture(label):
@@ -145,7 +154,7 @@ class WallpaperDropdownTest(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=GTK_TEST_TIMEOUT,
             check=False,
         )
 

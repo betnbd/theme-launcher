@@ -1,0 +1,13 @@
+{
+  "badges": [
+    "base-catalog"
+  ],
+  "description": "Classic dark theme with vivid purple accents.",
+  "name": "Dracula",
+  "preview": "preview.png",
+  "tags": [
+    "base-catalog",
+    "extra-theme"
+  ],
+  "variant": "dark"
+}
