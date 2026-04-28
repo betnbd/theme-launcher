@@ -302,3 +302,7 @@ GTK application tests are opt-in because they need a responsive graphical sessio
 ```bash
 THEME_LAUNCHER_RUN_GTK_TESTS=1 python3 -m unittest tests.test_wallpaper_dropdown -v
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
