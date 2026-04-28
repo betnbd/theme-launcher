@@ -2,7 +2,7 @@
 
 Theme Launcher is a local Ubuntu theme switcher for applying a shared theme catalog across GNOME and selected desktop apps.
 
-It is designed for a single workstation workflow: pick a theme, preview it, apply the matching desktop/app colors, and keep enough state to move back to the previous or default theme quickly.
+It ships with 25 pre-configured themes, each with a palette, workspace preview, and generated wallpaper. It is designed for a single workstation workflow: pick a theme, preview it, apply the matching desktop/app colors, and keep enough state to move back to the previous or default theme quickly.
 
 ![Theme Launcher GTK app screenshot](docs/assets/theme-launcher-screenshot.png)
 
@@ -95,7 +95,7 @@ Runtime state and synced themes live under:
 ~/.local/share/theme-launcher
 ```
 
-The repository includes a base catalog of 25 themes in:
+The repository includes a base catalog of 25 pre-configured themes in:
 
 ```text
 catalog/themes
