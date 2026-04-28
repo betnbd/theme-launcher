@@ -134,6 +134,93 @@ Supported metadata keys:
 - `badges`
 - `tags`
 
+## Create a Theme
+
+Add custom themes under `~/.local/share/theme-launcher/themes`. The folder name is the theme slug used by CLI commands.
+
+```bash
+mkdir -p ~/.local/share/theme-launcher/themes/my-theme/backgrounds
+cd ~/.local/share/theme-launcher/themes/my-theme
+```
+
+Start with a `colors.toml` file:
+
+```toml
+background = "#1e1e2e"
+foreground = "#cdd6f4"
+accent = "#89b4fa"
+
+color0 = "#45475a"
+color1 = "#f38ba8"
+color2 = "#a6e3a1"
+color3 = "#f9e2af"
+color4 = "#89b4fa"
+color5 = "#cba6f7"
+color6 = "#94e2d5"
+color7 = "#bac2de"
+```
+
+The required keys are `background`, `foreground`, and `accent`. The optional `color0` through `color15` keys are used by generated app configs and previews when available.
+
+Add optional metadata with `theme.json`:
+
+```json
+{
+  "name": "My Theme",
+  "variant": "dark",
+  "description": "Cool muted contrast",
+  "badges": ["custom"],
+  "tags": ["blue", "minimal"]
+}
+```
+
+`variant` must be either `dark` or `light`. You can also create an empty `light.mode` file to let Theme Launcher infer a light theme when `theme.json` is missing.
+
+Add images if you want them:
+
+```text
+preview.png
+backgrounds/1-desktop.png
+backgrounds/2-alt.jpg
+```
+
+`preview.png` should be a `1366x768` workspace preview. You can create or refresh previews from the theme palette:
+
+```bash
+theme-launcher generate-previews --dry-run
+theme-launcher generate-previews
+```
+
+Add app-specific files only when you want to provide a custom config for that app:
+
+```text
+ghostty.conf
+btop.theme
+neovim.lua
+vscode.json
+chromium.theme
+icons.theme
+cursor.theme
+```
+
+Theme Launcher can generate GTK, GNOME Shell, tmux, lazygit, fastfetch, bat, and fzf config from `colors.toml` during apply, so most simple themes only need palette colors plus optional app-specific overrides.
+
+Useful formats:
+
+- `icons.theme`: the GNOME icon theme name, such as `Yaru-blue-dark`
+- `cursor.theme`: the GNOME cursor theme name
+- `chromium.theme`: an RGB triplet, such as `30, 30, 46`
+- `vscode.json`: a JSON object with a string `name` and optional string `extension`
+
+Check the result:
+
+```bash
+theme-launcher metadata my-theme
+theme-launcher doctor
+theme-launcher gui
+theme-launcher apply my-theme --only gtk,ghostty
+```
+
 ## GUI Behavior
 
 - The GTK launcher shows catalog previews, selected wallpapers, metadata, variant filters, favorites, search, and default-theme actions.
