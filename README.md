@@ -103,6 +103,14 @@ catalog/themes
 
 Each bundled theme includes a palette, generated workspace preview, and one wallpaper. Local themes in `~/.local/share/theme-launcher/themes` override bundled themes with the same slug.
 
+Theme sources stay separate:
+
+- bundled themes: `catalog/themes` in this repository
+- local custom themes: `~/.local/share/theme-launcher/themes`
+- synced catalog themes: `~/.local/share/theme-launcher/vendor/catalog/themes`
+
+Applying a theme writes generated state under `~/.local/share/theme-launcher/state`; it does not copy bundled themes into your local custom theme store.
+
 `theme-launcher sync` expects these environment variables when pulling a catalog archive:
 
 ```text

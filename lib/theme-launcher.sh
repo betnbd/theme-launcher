@@ -254,6 +254,16 @@ theme_launcher_theme_exists() {
   return 1
 }
 
+theme_launcher_theme_source() {
+  local theme_dir="$1"
+
+  case "$theme_dir" in
+    "$THEME_LAUNCHER_CUSTOM_THEMES_DIR"/*) printf "custom" ;;
+    "$THEME_LAUNCHER_BUNDLED_THEMES_DIR"/*) printf "bundled" ;;
+    *) printf "vendor" ;;
+  esac
+}
+
 theme_launcher_theme_roots() {
   printf "%s\n" "$THEME_LAUNCHER_CUSTOM_THEMES_DIR"
 
@@ -663,6 +673,7 @@ theme_launcher_theme_metadata() {
   local selected_wallpaper=""
   local current_wallpaper=""
   local current_theme=""
+  local source=""
 
   if [[ -n "$requested_theme" ]]; then
     theme="$(theme_launcher_slugify "$requested_theme")"
@@ -678,6 +689,7 @@ theme_launcher_theme_metadata() {
   fi
   variant="$(theme_launcher_theme_variant "$theme_dir")"
   default_name="$(theme_launcher_display_name "$theme")"
+  source="$(theme_launcher_theme_source "$theme_dir")"
 
   if [[ -f "$theme_dir/preview.png" ]]; then
     preview_rel="preview.png"
@@ -723,6 +735,7 @@ theme_launcher_theme_metadata() {
     --argjson wallpapers "$wallpaper_json" \
     --arg selected_wallpaper "$selected_wallpaper" \
     --arg current_wallpaper "$current_wallpaper" \
+    --arg source "$source" \
     '
     {
         slug: $slug,
@@ -750,9 +763,7 @@ theme_launcher_theme_metadata() {
           if $current_wallpaper != "" then $current_wallpaper else null end
         ),
         favorite: $favorite,
-        source: (
-          if ($custom | length) > 0 then "theme.json" else "inferred" end
-        )
+        source: $source
       }
     | .badges |= unique
     '

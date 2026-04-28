@@ -38,6 +38,17 @@ class MetadataTest(unittest.TestCase):
                 f"{item['slug']} leaked current_wallpaper={current_wallpaper!r}",
             )
 
+    def test_single_theme_source_matches_bulk_metadata(self):
+        bulk_metadata = {
+            item["slug"]: item
+            for item in self.run_cli_json("metadata")
+        }
+        single_metadata = self.run_cli_json("metadata", "gruvbox")
+        self.assertEqual(
+            single_metadata["source"],
+            bulk_metadata["gruvbox"]["source"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

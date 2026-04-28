@@ -675,7 +675,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         write_json_file(GUI_STATE_FILE, state)
 
     def _apply_summary_for(self, theme, metadata):
-        source = "custom" if str(metadata.get("path", "")).startswith(str(Path.home())) else metadata.get("source", "theme")
+        source = metadata.get("source", "theme")
         wallpaper_count = len(metadata.get("wallpapers", []))
         parts = [
             "Apply updates GNOME, GTK, Ghostty, terminal tools, editor colors, and wallpaper when available.",
