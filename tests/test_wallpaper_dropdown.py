@@ -31,10 +31,14 @@ class WallpaperDropdownTest(unittest.TestCase):
         harness = textwrap.dedent(
             """
             import importlib.machinery
+            import importlib.util
 
-            mod = importlib.machinery.SourceFileLoader(
+            loader = importlib.machinery.SourceFileLoader(
                 "theme_launcher_gui", "bin/theme-launcher-gui"
-            ).load_module()
+            )
+            spec = importlib.util.spec_from_loader(loader.name, loader)
+            mod = importlib.util.module_from_spec(spec)
+            loader.exec_module(mod)
             from gi.repository import GLib, Gtk
 
             app = Gtk.Application(application_id="local.theme-launcher.dropdown-test")
@@ -84,10 +88,14 @@ class WallpaperDropdownTest(unittest.TestCase):
         harness = textwrap.dedent(
             """
             import importlib.machinery
+            import importlib.util
 
-            mod = importlib.machinery.SourceFileLoader(
+            loader = importlib.machinery.SourceFileLoader(
                 "theme_launcher_gui", "bin/theme-launcher-gui"
-            ).load_module()
+            )
+            spec = importlib.util.spec_from_loader(loader.name, loader)
+            mod = importlib.util.module_from_spec(spec)
+            loader.exec_module(mod)
             from gi.repository import GLib, Gtk
 
             app = Gtk.Application(application_id="local.theme-launcher.preview-size-test")

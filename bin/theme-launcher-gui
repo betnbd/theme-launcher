@@ -86,6 +86,14 @@ def write_recent_themes(themes):
     RECENT_THEMES_FILE.write_text("\n".join(themes[:MAX_RECENT_THEMES]) + ("\n" if themes else ""))
 
 
+def clear_box(box):
+    child = box.get_first_child()
+    while child is not None:
+        next_child = child.get_next_sibling()
+        box.remove(child)
+        child = next_child
+
+
 def wallpaper_label(name):
     stem = Path(name).stem
     cleaned = stem.lstrip("0123456789").lstrip("-_").replace("-", " ").replace("_", " ")
@@ -242,11 +250,7 @@ class ThemeRow(Gtk.ListBoxRow):
         self.badge_box.append(label)
 
     def _clear_badges(self):
-        child = self.badge_box.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
-            self.badge_box.remove(child)
-            child = next_child
+        clear_box(self.badge_box)
 
 
 class ThemeLauncherWindow(Gtk.ApplicationWindow):
@@ -820,11 +824,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             self.preview_badges.append(badge)
 
     def _clear_preview_badges(self):
-        child = self.preview_badges.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
-            self.preview_badges.remove(child)
-            child = next_child
+        clear_box(self.preview_badges)
 
     def _selected_wallpaper_for(self, theme, metadata=None):
         if not theme:
