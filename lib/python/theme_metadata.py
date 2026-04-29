@@ -97,14 +97,14 @@ def wallpapers_for(theme_dir):
 
 def collect_theme_metadata(
     custom_root,
-    bundled_root,
     vendor_root,
+    bundled_root,
     favorites_file,
     wallpaper_state_dir,
     current_theme_file,
     current_wallpaper_file,
 ):
-    roots = theme_roots(custom_root, bundled_root, vendor_root)
+    roots = theme_roots(custom_root, vendor_root, bundled_root)
     favorites = load_favorites(favorites_file)
     current_theme = read_text(current_theme_file)
     current_wallpaper = read_text(current_wallpaper_file)

@@ -267,13 +267,13 @@ theme_launcher_theme_source() {
 theme_launcher_theme_roots() {
   printf "%s\n" "$THEME_LAUNCHER_CUSTOM_THEMES_DIR"
 
+  if [[ "$THEME_LAUNCHER_THEMES_DIR" != "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" ]]; then
+    printf "%s\n" "$THEME_LAUNCHER_THEMES_DIR"
+  fi
+
   if [[ -d "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" &&
     "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" != "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" ]]; then
     printf "%s\n" "$THEME_LAUNCHER_BUNDLED_THEMES_DIR"
-  fi
-
-  if [[ "$THEME_LAUNCHER_THEMES_DIR" != "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" ]]; then
-    printf "%s\n" "$THEME_LAUNCHER_THEMES_DIR"
   fi
 }
 
@@ -773,8 +773,8 @@ theme_launcher_all_theme_metadata() {
   theme_launcher_require python3
   python3 "$THEME_LAUNCHER_PYTHON_DIR/all_theme_metadata.py" \
     "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" \
-    "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" \
     "$THEME_LAUNCHER_THEMES_DIR" \
+    "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" \
     "$THEME_LAUNCHER_FAVORITES_FILE" \
     "$THEME_LAUNCHER_WALLPAPER_STATE_DIR" \
     "$THEME_LAUNCHER_THEME_NAME_FILE" \
@@ -1166,8 +1166,8 @@ theme_launcher_bootstrap() {
   theme_launcher_require python3
   python3 "$THEME_LAUNCHER_PYTHON_DIR/bootstrap.py" \
     "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" \
-    "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" \
     "$THEME_LAUNCHER_THEMES_DIR" \
+    "$THEME_LAUNCHER_BUNDLED_THEMES_DIR" \
     "$THEME_LAUNCHER_FAVORITES_FILE" \
     "$THEME_LAUNCHER_WALLPAPER_STATE_DIR" \
     "$THEME_LAUNCHER_THEME_NAME_FILE" \

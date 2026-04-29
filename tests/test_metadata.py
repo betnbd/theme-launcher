@@ -71,6 +71,32 @@ class MetadataTest(unittest.TestCase):
             {item["source"] for item in bootstrap["metadata"]},
         )
 
+    def test_vendor_theme_overrides_bundled_theme_with_same_slug(self):
+        with tempfile.TemporaryDirectory() as launcher_home:
+            launcher_home = Path(launcher_home)
+            bundled_root = launcher_home / "bundled"
+            bundled_theme = bundled_root / "shared-theme" / "backgrounds"
+            vendor_theme = launcher_home / "vendor" / "catalog" / "themes" / "shared-theme" / "backgrounds"
+            bundled_theme.mkdir(parents=True)
+            vendor_theme.mkdir(parents=True)
+            (bundled_theme / "public.png").write_text("public")
+            (vendor_theme / "prior.png").write_text("prior")
+
+            metadata = self.run_cli_json(
+                "metadata",
+                "shared-theme",
+                env={
+                    "THEME_LAUNCHER_HOME": str(launcher_home),
+                    "THEME_LAUNCHER_BUNDLED_THEMES_DIR": str(bundled_root),
+                },
+            )
+
+        self.assertEqual("vendor", metadata["source"])
+        self.assertEqual(
+            ["prior.png"],
+            [item["name"] for item in metadata["wallpapers"]],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
