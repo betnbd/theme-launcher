@@ -9,12 +9,14 @@ It ships with 25 pre-configured themes, each with a palette, workspace preview, 
 ## What It Themes
 
 - GNOME color mode, icons, wallpaper, and Ubuntu Dock when supported by the current GNOME build
-- GNOME Shell top bar through the `user-theme` extension
+- GNOME Shell top bar text and panel colors through the `user-theme` extension
 - Ghostty, including launcher-driven reload support
 - VSCodium and VS Code-family editors
+- Firefox and Thunderbird profile chrome through generated `userChrome.css`
 - Neovim, btop, tmux, lazygit, fastfetch, bat, and fzf
 - GTK CSS generated from the selected theme palette
-- Chromium policy colors as an explicit opt-in target
+- Brave, Chromium, and Google Chrome policy colors
+- Codex Desktop appearance settings
 
 ## Quick Start
 
@@ -84,8 +86,18 @@ Example:
 ```bash
 theme-launcher apply rose-pine --only gnome,ghostty
 theme-launcher apply-default --skip chromium
+theme-launcher apply retro-82 --only firefox,thunderbird,codex
 theme-launcher previous apply
 ```
+
+Common target names include:
+
+```text
+gnome, dock, gnome-shell, ghostty, btop, neovim, tmux, lazygit,
+fastfetch, bat, fzf, gtk, firefox, thunderbird, vscode, chromium, codex
+```
+
+Aliases include `ff` for Firefox, `tbird` for Thunderbird, `brave` / `brave-browser` for Chromium policy theming, and `codex-desktop` for Codex Desktop.
 
 ## Theme Catalog
 
@@ -219,7 +231,7 @@ icons.theme
 cursor.theme
 ```
 
-Theme Launcher can generate GTK, GNOME Shell, tmux, lazygit, fastfetch, bat, and fzf config from `colors.toml` during apply, so most simple themes only need palette colors plus optional app-specific overrides.
+Theme Launcher can generate GTK, GNOME Shell, Firefox, Thunderbird, Codex Desktop, tmux, lazygit, fastfetch, bat, and fzf config from `colors.toml` during apply, so most simple themes only need palette colors plus optional app-specific overrides.
 
 Useful formats:
 
@@ -262,15 +274,30 @@ Imported themes can be checked for cleanup issues with:
 theme-launcher audit-themes
 ```
 
-## Safety Notes
+## Application Notes
 
-Full applies skip GNOME Shell top-bar and Chromium integration unless they are explicitly enabled.
+GNOME Shell top-bar theming uses the `user-theme` extension. The generated top-bar CSS follows each theme's `foreground` color for panel text, clock labels, and status icons, with hover and active states using the theme selection colors. If the top bar does not refresh immediately, log out and back in or restart GNOME Shell.
 
-To apply those targets directly:
+Firefox and Thunderbird theming writes a managed block to each detected profile's `chrome/userChrome.css` and enables:
+
+```js
+user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
+```
+
+Firefox and Thunderbird usually need a restart before new chrome CSS appears.
+
+Brave, Chromium, and Google Chrome use managed policy files populated from each theme's `chromium.theme` RGB triplet. The browser policy directory must be writable. Once writable and `THEME_LAUNCHER_ENABLE_CHROMIUM=1` is set, normal applies update browser policy colors; you can still force or skip this target with `--only chromium` or `--skip chromium`.
+
+Codex Desktop theming writes to `~/.codex/.codex-global-state.json`. Restart Codex Desktop if the app does not refresh immediately.
+
+Full applies still skip GNOME Shell top-bar integration unless it is explicitly enabled.
+
+To apply these targets directly:
 
 ```bash
 theme-launcher apply THEME --only gnome-shell
 theme-launcher apply THEME --only chromium
+theme-launcher apply THEME --only firefox,thunderbird,codex
 ```
 
 Or set:

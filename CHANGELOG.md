@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-05-05
+
+- Added Firefox and Thunderbird targets that write managed `userChrome.css` blocks and enable profile chrome customization.
+- Added Codex Desktop theme application from the active palette.
+- Added Brave/Chromium policy application to normal local applies when `THEME_LAUNCHER_ENABLE_CHROMIUM=1` is present in the managed shell block.
+- Expanded GNOME Shell panel CSS so top-bar text, clock labels, and status icons follow each theme's foreground color.
+- Added target parsing coverage for Firefox and Thunderbird aliases.
+
 ## 2026-04-27
 
 - Added a bundled base catalog with 25 themes, generated previews, and one generated palette wallpaper per theme.
