@@ -42,6 +42,18 @@ class FilterParsingTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unknown option", result.stderr)
 
+    def test_firefox_and_thunderbird_targets_are_recognized(self):
+        result = self.run_cli("apply", "nonexistent-theme-xyz", "--only", "firefox,thunderbird")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unknown theme", result.stderr)
+        self.assertNotIn("unknown target", result.stderr)
+
+    def test_mozilla_target_aliases_are_recognized(self):
+        result = self.run_cli("apply", "nonexistent-theme-xyz", "--only", "ff,tbird")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unknown theme", result.stderr)
+        self.assertNotIn("unknown target", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

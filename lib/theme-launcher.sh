@@ -325,12 +325,15 @@ fastfetch|theme_launcher_generate_fastfetch_config|theme_launcher_apply_fastfetc
 bat|theme_launcher_generate_bat_config|theme_launcher_apply_bat||bat
 fzf|theme_launcher_generate_fzf_shell|theme_launcher_apply_fzf||fzf
 gtk|theme_launcher_generate_gtk_css|theme_launcher_apply_gtk_css||
+firefox||theme_launcher_apply_firefox||firefox
+thunderbird||theme_launcher_apply_thunderbird||thunderbird
 vscode||theme_launcher_apply_vscode_family||code|code-insiders|codium|cursor
 chromium||theme_launcher_apply_chromium||chromium-browser|chromium|google-chrome|brave-browser
+codex||theme_launcher_apply_codex_desktop||codex-desktop
 EOF
 
 theme_launcher_target_registry() {
-  printf "%s" "$THEME_LAUNCHER_TARGET_REGISTRY"
+  printf "%s\n" "$THEME_LAUNCHER_TARGET_REGISTRY"
 }
 
 theme_launcher_for_each_target() {
@@ -360,8 +363,11 @@ theme_launcher_canonical_target() {
     bat) printf "bat" ;;
     fzf) printf "fzf" ;;
     gtk|gtk-css|nautilus) printf "gtk" ;;
+    firefox|mozilla-firefox|ff) printf "firefox" ;;
+    thunderbird|mozilla-thunderbird|tbird|tb) printf "thunderbird" ;;
     code|code-insiders|codium|cursor|vscode) printf "vscode" ;;
     chrome|google-chrome|chromium|brave|brave-browser) printf "chromium" ;;
+    codex|codex-desktop) printf "codex" ;;
     *)
       return 1
       ;;
@@ -1868,11 +1874,36 @@ theme_launcher_generate_gnome_shell_css() {
 }
 
 #panel .panel-button,
+#panel .panel-button StLabel,
+#panel .panel-button StIcon,
+#panel .panel-button .app-menu-icon,
 #panel .panel-button .clock,
+#panel .panel-button .clock-display,
+#panel .panel-button .clock-display StLabel,
+#panel .panel-button .panel-button-label,
 #panel .panel-button .panel-status-indicators-box,
 #panel .panel-button .system-status-icon,
-#panel .panel-button .popup-menu-icon {
+#panel .panel-button .popup-menu-icon,
+#panel .panel-button .popup-menu-arrow,
+#panel .panel-button .system-status-icon StIcon,
+#panel .panel-button .system-status-icon StLabel,
+#panel .panel-button .app-menu-icon StIcon,
+#panel .panel-button .app-menu-icon StLabel,
+#panel .panel-button .panel-status-menu-box StIcon,
+#panel .panel-button .panel-status-menu-box StLabel,
+#panel .panel-button .system-status-icon,
+#panel .panel-button .system-status-icon > StIcon,
+#panel .panel-button .system-status-icon > StLabel,
+#panel .panel-button .system-status-icon > * {
   color: ${foreground};
+}
+
+#panel .system-status-icon,
+#panel .popup-menu-icon,
+#panel .app-menu-icon,
+#panel .panel-button StIcon {
+  icon-shadow: none;
+  -st-icon-style: symbolic;
 }
 
 #panel .panel-button:hover,
@@ -1889,16 +1920,36 @@ theme_launcher_generate_gnome_shell_css() {
 #panel .panel-button:active .clock,
 #panel .panel-button:checked .clock,
 #panel .panel-button:overview .clock,
+#panel .panel-button:hover StLabel,
+#panel .panel-button:focus StLabel,
+#panel .panel-button:active StLabel,
+#panel .panel-button:checked StLabel,
+#panel .panel-button:overview StLabel,
+#panel .panel-button:hover StIcon,
+#panel .panel-button:focus StIcon,
+#panel .panel-button:active StIcon,
+#panel .panel-button:checked StIcon,
+#panel .panel-button:overview StIcon,
 #panel .panel-button:hover .system-status-icon,
 #panel .panel-button:focus .system-status-icon,
 #panel .panel-button:active .system-status-icon,
 #panel .panel-button:checked .system-status-icon,
 #panel .panel-button:overview .system-status-icon,
+#panel .panel-button:hover .panel-status-menu-box,
+#panel .panel-button:focus .panel-status-menu-box,
+#panel .panel-button:active .panel-status-menu-box,
+#panel .panel-button:checked .panel-status-menu-box,
+#panel .panel-button:overview .panel-status-menu-box,
 #panel .panel-button:hover .popup-menu-icon,
 #panel .panel-button:focus .popup-menu-icon,
 #panel .panel-button:active .popup-menu-icon,
 #panel .panel-button:checked .popup-menu-icon,
-#panel .panel-button:overview .popup-menu-icon {
+#panel .panel-button:overview .popup-menu-icon,
+#panel .panel-button:hover .popup-menu-arrow,
+#panel .panel-button:focus .popup-menu-arrow,
+#panel .panel-button:active .popup-menu-arrow,
+#panel .panel-button:checked .popup-menu-arrow,
+#panel .panel-button:overview .popup-menu-arrow {
   background-color: ${selection_bg};
   color: ${selection_fg};
   box-shadow: none;
@@ -2211,7 +2262,8 @@ theme_launcher_apply_fzf() {
 
   mkdir -p "$(dirname "$shell_file")"
   cp -f "$generated_file" "$shell_file"
-  block='[ -f "$HOME/.config/fzf/theme-launcher.bash" ] && . "$HOME/.config/fzf/theme-launcher.bash"'
+  block='export THEME_LAUNCHER_ENABLE_CHROMIUM="${THEME_LAUNCHER_ENABLE_CHROMIUM:-1}"
+[ -f "$HOME/.config/fzf/theme-launcher.bash" ] && . "$HOME/.config/fzf/theme-launcher.bash"'
   theme_launcher_write_managed_block "$HOME/.bashrc" "$block"
 }
 
@@ -2230,6 +2282,186 @@ theme_launcher_apply_gtk_css() {
     block="$(<"$generated")"
     theme_launcher_write_css_managed_block "$target" "$block"
   done
+}
+
+theme_launcher_mozilla_profiles() {
+  local app="$1"
+  local roots=()
+  local root
+
+  case "$app" in
+    firefox)
+      roots=(
+        "$HOME/.mozilla/firefox"
+        "$HOME/snap/firefox/common/.mozilla/firefox"
+        "$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox"
+      )
+      ;;
+    thunderbird)
+      roots=(
+        "$HOME/.thunderbird"
+        "$HOME/.config/thunderbird"
+        "$HOME/snap/thunderbird/common/.thunderbird"
+        "$HOME/.var/app/org.mozilla.Thunderbird/.thunderbird"
+      )
+      ;;
+  esac
+
+  for root in "${roots[@]}"; do
+    [[ -d "$root" ]] || continue
+    find "$root" -mindepth 1 -maxdepth 1 -type d -name "*.default*" -print
+  done | sort -u
+}
+
+theme_launcher_set_mozilla_pref() {
+  local prefs_file="$1"
+  local key="$2"
+  local value="$3"
+  local tmp
+  local escaped_key
+
+  mkdir -p "$(dirname "$prefs_file")"
+  [[ -f "$prefs_file" ]] || : >"$prefs_file"
+  cp -a "$prefs_file" "$prefs_file.theme-launcher.bak" 2>/dev/null || true
+
+  tmp="$(mktemp)"
+  escaped_key="$(printf "%s" "$key" | sed -E 's/[][(){}.^$*+?|\\/]/\\&/g')"
+
+  if grep -Eq "^user_pref\\(\"$escaped_key\"," "$prefs_file"; then
+    sed -E "s|^user_pref\\(\"$escaped_key\",.*|user_pref(\"$key\", $value);|" "$prefs_file" >"$tmp"
+  else
+    cat "$prefs_file" >"$tmp"
+    printf 'user_pref("%s", %s);\n' "$key" "$value" >>"$tmp"
+  fi
+
+  mv "$tmp" "$prefs_file"
+}
+
+theme_launcher_mozilla_user_chrome_css() {
+  local app="$1"
+  local colors_file="$THEME_LAUNCHER_CURRENT_DIR/colors.toml"
+  local background foreground accent selection_background muted danger
+  local -A colors
+
+  [[ -f "$colors_file" ]] || return 0
+
+  theme_launcher_load_colors_into "$colors_file" colors
+  background="${colors[background]:-#0f1117}"
+  foreground="${colors[foreground]:-#f4f4f5}"
+  accent="${colors[accent]:-$foreground}"
+  selection_background="${colors[selection_background]:-$accent}"
+  muted="${colors[color8]:-$background}"
+  danger="${colors[color1]:-$accent}"
+
+  cat <<CSS
+:root {
+  --theme-launcher-bg: $background !important;
+  --theme-launcher-fg: $foreground !important;
+  --theme-launcher-accent: $accent !important;
+  --theme-launcher-selection: $selection_background !important;
+  --theme-launcher-muted: $muted !important;
+  --theme-launcher-danger: $danger !important;
+}
+
+#navigator-toolbox,
+#titlebar,
+#TabsToolbar,
+#toolbar-menubar,
+#nav-bar,
+#PersonalToolbar,
+#tabbrowser-tabs,
+#mail-toolbox,
+#folderPane,
+#folderTree,
+#threadTree,
+#messagepanebox,
+#spacesToolbar {
+  background-color: var(--theme-launcher-bg) !important;
+  color: var(--theme-launcher-fg) !important;
+  border-color: color-mix(in srgb, var(--theme-launcher-accent) 45%, transparent) !important;
+}
+
+.tab-background[selected],
+.tabmail-tab[selected],
+treechildren::-moz-tree-row(selected),
+treechildren::-moz-tree-row(current) {
+  background-color: var(--theme-launcher-selection) !important;
+}
+
+.tab-label[selected],
+.tabmail-tab[selected],
+treechildren::-moz-tree-cell-text(selected),
+treechildren::-moz-tree-cell-text(current) {
+  color: var(--theme-launcher-bg) !important;
+}
+
+#urlbar-background,
+#searchbar,
+toolbarbutton,
+menupopup,
+panel,
+browser,
+messagepane,
+browser[type="content"] {
+  background-color: var(--theme-launcher-bg) !important;
+  color: var(--theme-launcher-fg) !important;
+}
+
+toolbarbutton:hover,
+.toolbarbutton-1:hover,
+.tabbrowser-tab:hover > .tab-stack > .tab-background,
+.tabmail-tab:hover {
+  background-color: color-mix(in srgb, var(--theme-launcher-accent) 18%, var(--theme-launcher-bg)) !important;
+}
+
+toolbarbutton[open],
+toolbarbutton[checked],
+.toolbarbutton-1[open],
+.toolbarbutton-1[checked] {
+  background-color: var(--theme-launcher-accent) !important;
+  color: var(--theme-launcher-bg) !important;
+}
+CSS
+}
+
+theme_launcher_apply_mozilla_app() {
+  local app="$1"
+  local profile
+  local applied=0
+  local css_file
+  local prefs_file
+  local block
+
+  if [[ "$app" == "firefox" ]]; then
+    command -v firefox >/dev/null 2>&1 || [[ -d "$HOME/snap/firefox/common/.mozilla/firefox" ]] || return 0
+  else
+    command -v thunderbird >/dev/null 2>&1 || [[ -d "$HOME/snap/thunderbird/common/.thunderbird" ]] || return 0
+  fi
+
+  block="$(theme_launcher_mozilla_user_chrome_css "$app")"
+  [[ -n "$block" ]] || return 0
+
+  while IFS= read -r profile; do
+    [[ -d "$profile" ]] || continue
+    css_file="$profile/chrome/userChrome.css"
+    prefs_file="$profile/prefs.js"
+    mkdir -p "$(dirname "$css_file")"
+    theme_launcher_write_css_managed_block "$css_file" "$block"
+    theme_launcher_set_mozilla_pref "$prefs_file" "toolkit.legacyUserProfileCustomizations.stylesheets" "true"
+    applied=1
+  done < <(theme_launcher_mozilla_profiles "$app")
+
+  if [[ "$applied" -eq 0 ]]; then
+    theme_launcher_warn "$app profile not found; launch $app once, then re-run theme-launcher apply --only $app"
+  fi
+}
+
+theme_launcher_apply_firefox() {
+  theme_launcher_apply_mozilla_app firefox
+}
+
+theme_launcher_apply_thunderbird() {
+  theme_launcher_apply_mozilla_app thunderbird
 }
 
 theme_launcher_set_editor_theme() {
@@ -2310,11 +2542,81 @@ theme_launcher_apply_chromium() {
   done
 
   if [[ "$applied" -eq 0 ]]; then
-    theme_launcher_warn "Chromium policy directory not writable; to enable browser theming run: sudo mkdir -p /etc/chromium/policies/managed && sudo chmod o+w /etc/chromium/policies/managed"
+    if command -v brave-browser >/dev/null 2>&1; then
+      theme_launcher_warn "Brave policy directory not writable; to enable browser theming run: sudo mkdir -p /etc/brave/policies/managed && sudo chmod o+w /etc/brave/policies/managed"
+    else
+      theme_launcher_warn "Chromium policy directory not writable; to enable browser theming run: sudo mkdir -p /etc/chromium/policies/managed && sudo chmod o+w /etc/chromium/policies/managed"
+    fi
     if snap list chromium >/dev/null 2>&1; then
       theme_launcher_warn "For snap Chromium, also run: sudo snap connect chromium:etc-chromium-browser-policies"
     fi
   fi
+}
+
+theme_launcher_apply_codex_desktop() {
+  local colors_file="$THEME_LAUNCHER_CURRENT_DIR/colors.toml"
+  local state_file="${CODEX_HOME:-$HOME/.codex}/.codex-global-state.json"
+  local background foreground accent selection_background color2
+  local -A colors
+
+  command -v codex-desktop >/dev/null 2>&1 || [[ -d "$HOME/.config/Codex" ]] || return 0
+  [[ -f "$colors_file" ]] || return 0
+
+  theme_launcher_load_colors_into "$colors_file" colors
+  background="${colors[background]:-#0f1117}"
+  foreground="${colors[foreground]:-#f4f4f5}"
+  accent="${colors[accent]:-$foreground}"
+  selection_background="${colors[selection_background]:-$accent}"
+  color2="${colors[color2]:-$accent}"
+
+  mkdir -p "$(dirname "$state_file")"
+  [[ -f "$state_file" ]] || printf "{}\n" >"$state_file"
+  cp -a "$state_file" "$state_file.theme-launcher.bak" 2>/dev/null || true
+
+  THEME_LAUNCHER_CODEX_STATE_FILE="$state_file" \
+  THEME_LAUNCHER_CODEX_BACKGROUND="$background" \
+  THEME_LAUNCHER_CODEX_FOREGROUND="$foreground" \
+  THEME_LAUNCHER_CODEX_ACCENT="$accent" \
+  THEME_LAUNCHER_CODEX_SELECTION_BACKGROUND="$selection_background" \
+  THEME_LAUNCHER_CODEX_SKILL="$color2" \
+  node <<'NODE'
+const fs = require("fs");
+
+const path = process.env.THEME_LAUNCHER_CODEX_STATE_FILE;
+const readColor = (name) => process.env[name];
+const theme = {
+  surface: readColor("THEME_LAUNCHER_CODEX_BACKGROUND"),
+  ink: readColor("THEME_LAUNCHER_CODEX_FOREGROUND"),
+  accent: readColor("THEME_LAUNCHER_CODEX_ACCENT"),
+  contrast: 18,
+  opaqueWindows: true,
+  semanticColors: {
+    diffAdded: readColor("THEME_LAUNCHER_CODEX_SKILL"),
+    diffRemoved: "#f85525",
+    skill: readColor("THEME_LAUNCHER_CODEX_SELECTION_BACKGROUND"),
+  },
+};
+
+let state = {};
+try {
+  state = JSON.parse(fs.readFileSync(path, "utf8"));
+} catch {
+  state = {};
+}
+
+state.appearanceTheme = "dark";
+state.appearanceDarkChromeTheme = {
+  ...(state.appearanceDarkChromeTheme || {}),
+  ...theme,
+  fonts: { ...(state.appearanceDarkChromeTheme || {}).fonts },
+  semanticColors: {
+    ...((state.appearanceDarkChromeTheme || {}).semanticColors || {}),
+    ...theme.semanticColors,
+  },
+};
+
+fs.writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`);
+NODE
 }
 
 theme_launcher_generate_target() {
