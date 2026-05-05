@@ -286,7 +286,7 @@ user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
 
 Firefox and Thunderbird usually need a restart before new chrome CSS appears.
 
-Brave, Chromium, and Google Chrome use managed policy files populated from each theme's `chromium.theme` RGB triplet. The browser policy directory must be writable. Once writable and `THEME_LAUNCHER_ENABLE_CHROMIUM=1` is set, normal applies update browser policy colors; you can still force or skip this target with `--only chromium` or `--skip chromium`.
+Brave, Chromium, and Google Chrome use managed policy files populated from each theme's `chromium.theme` RGB triplet. The browser policy directory must be writable. For Brave, Theme Launcher also generates a local Chromium theme extension and local desktop-entry overrides so new Brave launches load the theme extension from `~/.local/share/theme-launcher/state/brave-theme-extension`. Once writable and `THEME_LAUNCHER_ENABLE_CHROMIUM=1` is set, normal applies update browser policy colors; you can still force or skip this target with `--only chromium` or `--skip chromium`.
 
 Codex Desktop theming writes to `~/.codex/.codex-global-state.json`. Restart Codex Desktop if the app does not refresh immediately.
 

@@ -5,6 +5,7 @@
 - Added Firefox and Thunderbird targets that write managed `userChrome.css` blocks and enable profile chrome customization.
 - Added Codex Desktop theme application from the active palette.
 - Added Brave/Chromium policy application to normal local applies when `THEME_LAUNCHER_ENABLE_CHROMIUM=1` is present in the managed shell block.
+- Added a generated Brave theme extension plus local desktop-entry overrides so Brave can load full toolbar colors when policy color alone is not enough.
 - Expanded GNOME Shell panel CSS so top-bar text, clock labels, and status icons follow each theme's foreground color.
 - Added target parsing coverage for Firefox and Thunderbird aliases.
 

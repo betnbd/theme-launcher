@@ -2509,6 +2509,96 @@ theme_launcher_apply_vscode_family() {
   theme_launcher_set_editor_theme "cursor" "$HOME/.config/Cursor/User/settings.json"
 }
 
+theme_launcher_hex_to_json_rgb() {
+  local hex="$1"
+  local fallback="$2"
+
+  [[ "$hex" =~ ^#[0-9a-fA-F]{6}$ ]] || hex="$fallback"
+  hex="${hex#\#}"
+  printf '[%d, %d, %d]' "0x${hex:0:2}" "0x${hex:2:2}" "0x${hex:4:2}"
+}
+
+theme_launcher_write_brave_theme_extension() {
+  local colors_file="$THEME_LAUNCHER_CURRENT_DIR/colors.toml"
+  local extension_dir="$THEME_LAUNCHER_STATE_DIR/brave-theme-extension"
+  local background foreground accent selection_background muted
+  local -A colors
+
+  command -v brave-browser >/dev/null 2>&1 || return 0
+  [[ -f "$colors_file" ]] || return 0
+
+  theme_launcher_load_colors_into "$colors_file" colors
+  background="${colors[background]:-#0f1117}"
+  foreground="${colors[foreground]:-#f4f4f5}"
+  accent="${colors[accent]:-$foreground}"
+  selection_background="${colors[selection_background]:-$accent}"
+  muted="${colors[color8]:-$background}"
+
+  mkdir -p "$extension_dir"
+  cat >"$extension_dir/manifest.json" <<EOF
+{
+  "manifest_version": 3,
+  "name": "Theme Launcher Brave Theme",
+  "version": "1.0.0",
+  "theme": {
+    "colors": {
+      "frame": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
+      "frame_inactive": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
+      "toolbar": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
+      "tab_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
+      "tab_background_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
+      "bookmark_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
+      "ntp_background": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
+      "ntp_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
+      "button_background": $(theme_launcher_hex_to_json_rgb "$accent" "#f4f4f5"),
+      "toolbar_button_icon": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
+      "omnibox_background": $(theme_launcher_hex_to_json_rgb "$muted" "#0f1117"),
+      "omnibox_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
+      "omnibox_selected_keyword": $(theme_launcher_hex_to_json_rgb "$selection_background" "#f4f4f5"),
+      "omnibox_results_bg": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
+      "omnibox_results_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5")
+    },
+    "tints": {
+      "buttons": [0.0, 0.0, 1.0]
+    }
+  }
+}
+EOF
+}
+
+theme_launcher_write_brave_desktop_override() {
+  local extension_dir="$THEME_LAUNCHER_STATE_DIR/brave-theme-extension"
+  local source_desktop
+  local target_desktop
+
+  command -v brave-browser >/dev/null 2>&1 || return 0
+  [[ -f "$extension_dir/manifest.json" ]] || return 0
+
+  mkdir -p "$HOME/.local/share/applications"
+
+  for source_desktop in /usr/share/applications/brave-browser.desktop /usr/share/applications/com.brave.Browser.desktop; do
+    [[ -f "$source_desktop" ]] || continue
+    target_desktop="$HOME/.local/share/applications/$(basename "$source_desktop")"
+    awk -v extension_dir="$extension_dir" '
+      /^Exec=\/usr\/bin\/brave-browser-stable --incognito/ {
+        sub(/^Exec=\/usr\/bin\/brave-browser-stable /, "Exec=/usr/bin/brave-browser-stable --load-extension=" extension_dir " ")
+        print
+        next
+      }
+      /^Exec=\/usr\/bin\/brave-browser-stable/ {
+        sub(/^Exec=\/usr\/bin\/brave-browser-stable/, "Exec=/usr/bin/brave-browser-stable --load-extension=" extension_dir)
+        print
+        next
+      }
+      { print }
+    ' "$source_desktop" >"$target_desktop"
+  done
+
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
+  fi
+}
+
 theme_launcher_apply_chromium() {
   local chromium_theme_file="$THEME_LAUNCHER_CURRENT_DIR/chromium.theme"
   local rgb_value r g b background_hex
@@ -2551,6 +2641,9 @@ theme_launcher_apply_chromium() {
       theme_launcher_warn "For snap Chromium, also run: sudo snap connect chromium:etc-chromium-browser-policies"
     fi
   fi
+
+  theme_launcher_write_brave_theme_extension
+  theme_launcher_write_brave_desktop_override
 }
 
 theme_launcher_apply_codex_desktop() {
