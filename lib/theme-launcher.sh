@@ -2361,6 +2361,30 @@ theme_launcher_mozilla_user_chrome_css() {
   --theme-launcher-selection: $selection_background !important;
   --theme-launcher-muted: $muted !important;
   --theme-launcher-danger: $danger !important;
+  --toolbar-bgcolor: $background !important;
+  --toolbar-color: $foreground !important;
+  --lwt-accent-color: $background !important;
+  --lwt-text-color: $foreground !important;
+  --lwt-toolbar-field-background-color: $muted !important;
+  --lwt-toolbar-field-color: $foreground !important;
+  --lwt-sidebar-background-color: $background !important;
+  --lwt-sidebar-text-color: $foreground !important;
+  --sidebar-background-color: $background !important;
+  --sidebar-text-color: $foreground !important;
+  --tree-view-bg: $background !important;
+  --tree-view-color: $foreground !important;
+  --selected-item-color: $selection_background !important;
+  --selected-item-text-color: $background !important;
+  --layout-background-0: $background !important;
+  --layout-background-1: $background !important;
+  --layout-background-2: $muted !important;
+  --layout-color-0: $foreground !important;
+  --layout-color-1: $foreground !important;
+  --splitter-color: color-mix(in srgb, $accent 35%, transparent) !important;
+  --button-background-color: $muted !important;
+  --button-text-color: $foreground !important;
+  --field-background-color: $muted !important;
+  --field-text-color: $foreground !important;
 }
 
 #navigator-toolbox,
@@ -2374,8 +2398,37 @@ theme_launcher_mozilla_user_chrome_css() {
 #folderPane,
 #folderTree,
 #threadTree,
+#threadPane,
+#threadPaneBox,
+#threadPaneHeaderBar,
+#quick-filter-bar,
+#messagePane,
 #messagepanebox,
-#spacesToolbar {
+#messageBrowser,
+#multiMessageBrowser,
+#accountCentralBrowser,
+#tabpanelcontainer,
+#messengerWindow,
+#messengerBox,
+#tabmail,
+#spacesToolbar,
+#today-pane-panel,
+#today-pane-splitter,
+#calendarTabPanel,
+#calendarContent,
+#calendarDisplayDeck,
+#calendar-view-box,
+#calendar-task-box,
+#calendar-task-tree,
+#calendar-task-details-container,
+#unifinder-search-results-tree,
+#agenda,
+#agenda-listbox,
+#mini-day-box,
+#calMinimonth,
+.calendar-month-view,
+.calendar-week-view,
+.calendar-day-view {
   background-color: var(--theme-launcher-bg) !important;
   color: var(--theme-launcher-fg) !important;
   border-color: color-mix(in srgb, var(--theme-launcher-accent) 45%, transparent) !important;
@@ -2384,6 +2437,12 @@ theme_launcher_mozilla_user_chrome_css() {
 .tab-background[selected],
 .tabmail-tab[selected],
 treechildren::-moz-tree-row(selected),
+#threadTree tr[is="thread-row"].selected,
+#threadTree tr[is="thread-row"][selected],
+#threadTree tr.selected,
+#folderTree li.selected,
+#agenda-listbox richlistitem[selected],
+#calendar-task-tree treechildren::-moz-tree-row(selected),
 treechildren::-moz-tree-row(current) {
   background-color: var(--theme-launcher-selection) !important;
 }
@@ -2391,6 +2450,12 @@ treechildren::-moz-tree-row(current) {
 .tab-label[selected],
 .tabmail-tab[selected],
 treechildren::-moz-tree-cell-text(selected),
+#threadTree tr[is="thread-row"].selected,
+#threadTree tr[is="thread-row"][selected],
+#threadTree tr.selected,
+#folderTree li.selected,
+#agenda-listbox richlistitem[selected],
+#calendar-task-tree treechildren::-moz-tree-cell-text(selected),
 treechildren::-moz-tree-cell-text(current) {
   color: var(--theme-launcher-bg) !important;
 }
@@ -2402,22 +2467,62 @@ menupopup,
 panel,
 browser,
 messagepane,
-browser[type="content"] {
+browser[type="content"],
+splitter,
+tree,
+treechildren,
+richlistbox,
+richlistitem,
+input,
+textarea,
+search-textbox,
+menulist,
+listbox,
+.card-container,
+.message-header-container,
+.message-body-container,
+.message-list-container,
+.container,
+.calendar-event-column-linebox,
+.calendar-event-selection,
+.alarm-icons-box,
+.today-subpane,
+.agenda-container-box,
+.agenda-date-header,
+.calendar-list-pane,
+.minimonth-month-box,
+.minimonth-calendar {
   background-color: var(--theme-launcher-bg) !important;
+  color: var(--theme-launcher-fg) !important;
+  border-color: color-mix(in srgb, var(--theme-launcher-accent) 35%, transparent) !important;
+}
+
+#threadTree tr[is="thread-row"]:hover,
+#threadTree tr:hover,
+#folderTree li:hover,
+#agenda-listbox richlistitem:hover,
+treechildren::-moz-tree-row(hover) {
+  background-color: color-mix(in srgb, var(--theme-launcher-accent) 18%, var(--theme-launcher-bg)) !important;
   color: var(--theme-launcher-fg) !important;
 }
 
 toolbarbutton:hover,
 .toolbarbutton-1:hover,
 .tabbrowser-tab:hover > .tab-stack > .tab-background,
-.tabmail-tab:hover {
+.tabmail-tab:hover,
+button:hover,
+.button:hover {
   background-color: color-mix(in srgb, var(--theme-launcher-accent) 18%, var(--theme-launcher-bg)) !important;
 }
 
 toolbarbutton[open],
 toolbarbutton[checked],
 .toolbarbutton-1[open],
-.toolbarbutton-1[checked] {
+.toolbarbutton-1[checked],
+button[open],
+button[checked],
+.button[open],
+.button[checked] {
   background-color: var(--theme-launcher-accent) !important;
   color: var(--theme-launcher-bg) !important;
 }
@@ -2544,16 +2649,20 @@ theme_launcher_write_brave_theme_extension() {
     "colors": {
       "frame": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
       "frame_inactive": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
-      "toolbar": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
-      "tab_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
+      "toolbar": $(theme_launcher_hex_to_json_rgb "$selection_background" "#f4f4f5"),
+      "tab_text": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
       "tab_background_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
       "bookmark_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
       "ntp_background": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
       "ntp_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
       "button_background": $(theme_launcher_hex_to_json_rgb "$accent" "#f4f4f5"),
-      "toolbar_button_icon": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
+      "toolbar_button_icon": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
+      "toolbar_text": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
+      "toolbar_top_separator": $(theme_launcher_hex_to_json_rgb "$selection_background" "#f4f4f5"),
+      "toolbar_bottom_separator": $(theme_launcher_hex_to_json_rgb "$muted" "#0f1117"),
       "omnibox_background": $(theme_launcher_hex_to_json_rgb "$muted" "#0f1117"),
       "omnibox_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
+      "omnibox_results_button_icon": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5"),
       "omnibox_selected_keyword": $(theme_launcher_hex_to_json_rgb "$selection_background" "#f4f4f5"),
       "omnibox_results_bg": $(theme_launcher_hex_to_json_rgb "$background" "#0f1117"),
       "omnibox_results_text": $(theme_launcher_hex_to_json_rgb "$foreground" "#f4f4f5")
