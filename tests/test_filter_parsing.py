@@ -1,4 +1,5 @@
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -53,6 +54,57 @@ class FilterParsingTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unknown theme", result.stderr)
         self.assertNotIn("unknown target", result.stderr)
+
+    def test_mozilla_targets_have_reload_hooks(self):
+        script = r'''
+          set -euo pipefail
+          source ./lib/theme-launcher.sh
+          theme_launcher_target_registry | grep -Fxq 'firefox||theme_launcher_apply_firefox|theme_launcher_reload_firefox|firefox'
+          theme_launcher_target_registry | grep -Fxq 'thunderbird||theme_launcher_apply_thunderbird|theme_launcher_reload_thunderbird|thunderbird'
+          declare -F theme_launcher_reload_firefox >/dev/null
+          declare -F theme_launcher_reload_thunderbird >/dev/null
+        '''
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_brave_theme_does_not_require_chromium_theme_file(self):
+        script = r'''
+          set -euo pipefail
+          tmpdir="$1"
+          mkdir -p "$tmpdir/bin" "$tmpdir/theme-home/state/current"
+          printf '#!/usr/bin/env bash\nexit 0\n' >"$tmpdir/bin/brave-browser"
+          chmod +x "$tmpdir/bin/brave-browser"
+          cat >"$tmpdir/theme-home/state/current/colors.toml" <<'TOML'
+background = "#112233"
+foreground = "#ddeeff"
+accent = "#4477aa"
+selection_background = "#6688aa"
+color8 = "#334455"
+TOML
+          export HOME="$tmpdir/home"
+          export PATH="$tmpdir/bin:$PATH"
+          export THEME_LAUNCHER_HOME="$tmpdir/theme-home"
+          source ./lib/theme-launcher.sh
+          theme_launcher_apply_chromium
+          test -f "$THEME_LAUNCHER_STATE_DIR/brave-theme-extension/manifest.json"
+          grep -Fq '"frame": [17, 34, 51]' "$THEME_LAUNCHER_STATE_DIR/brave-theme-extension/manifest.json"
+        '''
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                ["bash", "-c", script, "bash", tmpdir],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

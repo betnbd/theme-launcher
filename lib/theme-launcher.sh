@@ -325,8 +325,8 @@ fastfetch|theme_launcher_generate_fastfetch_config|theme_launcher_apply_fastfetc
 bat|theme_launcher_generate_bat_config|theme_launcher_apply_bat||bat
 fzf|theme_launcher_generate_fzf_shell|theme_launcher_apply_fzf||fzf
 gtk|theme_launcher_generate_gtk_css|theme_launcher_apply_gtk_css||
-firefox||theme_launcher_apply_firefox||firefox
-thunderbird||theme_launcher_apply_thunderbird||thunderbird
+firefox||theme_launcher_apply_firefox|theme_launcher_reload_firefox|firefox
+thunderbird||theme_launcher_apply_thunderbird|theme_launcher_reload_thunderbird|thunderbird
 vscode||theme_launcher_apply_vscode_family||code|code-insiders|codium|cursor
 chromium||theme_launcher_apply_chromium|theme_launcher_reload_chromium|chromium-browser|chromium|google-chrome|brave-browser
 codex||theme_launcher_apply_codex_desktop||codex-desktop
@@ -2569,6 +2569,96 @@ theme_launcher_apply_thunderbird() {
   theme_launcher_apply_mozilla_app thunderbird
 }
 
+theme_launcher_mozilla_main_process_pattern() {
+  local app="$1"
+
+  case "$app" in
+    firefox)
+      printf '^/snap/.*/usr/lib/firefox/firefox( |$)|^/usr/lib/firefox/firefox( |$)|^/usr/lib/firefox/firefox-bin( |$)|^firefox( |$)'
+      ;;
+    thunderbird)
+      printf '^/snap/.*/usr/lib/thunderbird/thunderbird-bin( |$)|^/usr/lib/thunderbird/thunderbird( |$)|^/usr/lib/thunderbird/thunderbird-bin( |$)|^thunderbird( |$)'
+      ;;
+  esac
+}
+
+theme_launcher_mozilla_any_process_pattern() {
+  local app="$1"
+
+  case "$app" in
+    firefox)
+      printf '^/snap/.*/usr/lib/firefox/firefox( |$)|^/usr/lib/firefox/firefox( |$)|^/usr/lib/firefox/firefox-bin( |$)|^firefox( |$)'
+      ;;
+    thunderbird)
+      printf '^/snap/.*/usr/lib/thunderbird/thunderbird-bin( |$)|^/usr/lib/thunderbird/thunderbird( |$)|^/usr/lib/thunderbird/thunderbird-bin( |$)|^thunderbird( |$)'
+      ;;
+  esac
+}
+
+theme_launcher_mozilla_running() {
+  local app="$1"
+  local pattern
+
+  pattern="$(theme_launcher_mozilla_main_process_pattern "$app")"
+  [[ -n "$pattern" ]] || return 1
+  pgrep -f "$pattern" >/dev/null 2>&1
+}
+
+theme_launcher_mozilla_pids() {
+  local app="$1"
+  local pattern
+
+  pattern="$(theme_launcher_mozilla_main_process_pattern "$app")"
+  [[ -n "$pattern" ]] || return 0
+  pgrep -f "$pattern" || true
+}
+
+theme_launcher_mozilla_any_running() {
+  local app="$1"
+  local pattern
+
+  pattern="$(theme_launcher_mozilla_any_process_pattern "$app")"
+  [[ -n "$pattern" ]] || return 1
+  pgrep -f "$pattern" >/dev/null 2>&1
+}
+
+theme_launcher_reload_mozilla_app() {
+  local app="$1"
+  local pids
+  local waited=0
+
+  theme_launcher_mozilla_running "$app" || return 0
+
+  pids="$(theme_launcher_mozilla_pids "$app")"
+  [[ -n "$pids" ]] || return 0
+
+  theme_launcher_warn "$app must restart to load the updated theme chrome"
+  kill -TERM $pids >/dev/null 2>&1 || true
+
+  while theme_launcher_mozilla_any_running "$app" && (( waited < 100 )); do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+
+  if theme_launcher_mozilla_any_running "$app"; then
+    theme_launcher_warn "$app did not exit cleanly; close and reopen it to load the updated theme"
+    return 0
+  fi
+
+  # Mozilla may rewrite prefs.js during shutdown, so refresh the managed CSS and
+  # stylesheet preference after the process is gone.
+  theme_launcher_apply_mozilla_app "$app"
+  nohup "$app" >/tmp/theme-launcher-"$app".log 2>&1 &
+}
+
+theme_launcher_reload_firefox() {
+  theme_launcher_reload_mozilla_app firefox
+}
+
+theme_launcher_reload_thunderbird() {
+  theme_launcher_reload_mozilla_app thunderbird
+}
+
 theme_launcher_set_editor_theme() {
   local editor_cmd="$1"
   local settings_path="$2"
@@ -2802,14 +2892,28 @@ theme_launcher_apply_chromium() {
   theme_launcher_risky_target_enabled "chromium" || return 0
   theme_launcher_chromium_installed || return 0
 
-  [[ -f "$chromium_theme_file" ]] || return 0
-  rgb_value="$(theme_launcher_normalize_rgb_triplet "$(<"$chromium_theme_file")")" || return 0
+  command -v brave-browser >/dev/null 2>&1 && has_brave=1
+
+  if [[ ! -f "$chromium_theme_file" ]]; then
+    theme_launcher_remove_brave_policy_theme
+    theme_launcher_write_brave_theme_extension
+    theme_launcher_write_brave_desktop_override
+    theme_launcher_apply_brave_profile_theme
+    return 0
+  fi
+
+  if ! rgb_value="$(theme_launcher_normalize_rgb_triplet "$(<"$chromium_theme_file")")"; then
+    theme_launcher_remove_brave_policy_theme
+    theme_launcher_write_brave_theme_extension
+    theme_launcher_write_brave_desktop_override
+    theme_launcher_apply_brave_profile_theme
+    return 0
+  fi
 
   IFS=',' read -r r g b <<< "$rgb_value"
   background_hex="$(printf '#%02x%02x%02x' "$r" "$g" "$b")"
 
   policy_json="{\"BrowserThemeColor\": \"${background_hex}\"}"
-  command -v brave-browser >/dev/null 2>&1 && has_brave=1
   if command -v chromium-browser >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1 || command -v google-chrome >/dev/null 2>&1; then
     has_policy_browser=1
   fi
