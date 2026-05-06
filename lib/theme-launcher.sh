@@ -2714,6 +2714,11 @@ theme_launcher_write_brave_desktop_override() {
         print
         next
       }
+      /^StartupNotify=/ {
+        print "StartupNotify=false"
+        print "StartupWMClass=brave-browser"
+        next
+      }
       { print }
     ' "$source_desktop" >"$target_desktop"
   done
