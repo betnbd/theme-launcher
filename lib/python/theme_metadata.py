@@ -70,7 +70,6 @@ def targets(theme_dir):
         ("btop", "btop.theme"),
         ("Neovim", "neovim.lua"),
         ("VS Code", "vscode.json"),
-        ("Chromium", "chromium.theme"),
         ("Waybar", "waybar.css"),
         ("Hyprland", "hyprland.conf"),
         ("Kitty", "kitty.conf"),

@@ -55,6 +55,17 @@ class FilterParsingTest(unittest.TestCase):
         self.assertIn("unknown theme", result.stderr)
         self.assertNotIn("unknown target", result.stderr)
 
+    def test_chromium_target_is_not_supported(self):
+        result = self.run_cli("apply", "nonexistent-theme-xyz", "--only", "chromium")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unknown target in filter: chromium", result.stderr)
+
+    def test_brave_target_is_recognized(self):
+        result = self.run_cli("apply", "nonexistent-theme-xyz", "--only", "brave")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unknown theme", result.stderr)
+        self.assertNotIn("unknown target", result.stderr)
+
     def test_mozilla_targets_have_reload_hooks(self):
         script = r'''
           set -euo pipefail
@@ -91,9 +102,38 @@ TOML
           export PATH="$tmpdir/bin:$PATH"
           export THEME_LAUNCHER_HOME="$tmpdir/theme-home"
           source ./lib/theme-launcher.sh
-          theme_launcher_apply_chromium
+          theme_launcher_apply_brave
           test -f "$THEME_LAUNCHER_STATE_DIR/brave-theme-extension/manifest.json"
           grep -Fq '"frame": [17, 34, 51]' "$THEME_LAUNCHER_STATE_DIR/brave-theme-extension/manifest.json"
+        '''
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                ["bash", "-c", script, "bash", tmpdir],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_vendor_chromium_template_is_ignored(self):
+        script = r'''
+          set -euo pipefail
+          tmpdir="$1"
+          export THEME_LAUNCHER_HOME="$tmpdir/theme-home"
+          mkdir -p "$THEME_LAUNCHER_HOME/state/next" "$THEME_LAUNCHER_HOME/vendor/catalog/default/themed"
+          cat >"$THEME_LAUNCHER_HOME/state/next/colors.toml" <<'TOML'
+background = "#112233"
+foreground = "#ddeeff"
+accent = "#4477aa"
+TOML
+          printf '{{ background_rgb }}\n' >"$THEME_LAUNCHER_HOME/vendor/catalog/default/themed/chromium.theme.tpl"
+          printf 'ok\n' >"$THEME_LAUNCHER_HOME/vendor/catalog/default/themed/fzf.bash.tpl"
+          source ./lib/theme-launcher.sh
+          theme_launcher_generate_templates
+          test ! -e "$THEME_LAUNCHER_NEXT_DIR/chromium.theme"
+          test -e "$THEME_LAUNCHER_NEXT_DIR/fzf.bash"
         '''
 
         with tempfile.TemporaryDirectory() as tmpdir:

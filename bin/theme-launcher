@@ -81,10 +81,9 @@ Apply filters:
   --skip TARGETS   Apply every target except the selected ones
 
 Risky integrations:
-  GNOME Shell and Chromium are disabled by default during full applies.
-  Re-run with --only gnome-shell / --only chromium, or set:
+  GNOME Shell is disabled by default during full applies.
+  Re-run with --only gnome-shell, or set:
   THEME_LAUNCHER_ENABLE_GNOME_SHELL=1
-  THEME_LAUNCHER_ENABLE_CHROMIUM=1
 
 Favorite commands:
   favorite list
@@ -94,7 +93,7 @@ Favorite commands:
 
 Targets:
   gnome, dock, gnome-shell, ghostty, btop, neovim, tmux, lazygit,
-  fastfetch, bat, fzf, gtk, vscode, chromium
+  fastfetch, bat, fzf, gtk, firefox, thunderbird, brave, vscode, codex
 EOF
 }
 

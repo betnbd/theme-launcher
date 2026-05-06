@@ -39,6 +39,7 @@ THEME_LAUNCHER_RANDOM_WALLPAPER_TOKEN="__THEME_LAUNCHER_RANDOM__"
 THEME_LAUNCHER_MARKER_BEGIN="# theme-launcher begin"
 THEME_LAUNCHER_MARKER_END="# theme-launcher end"
 THEME_LAUNCHER_WARNED_RISKY_TARGETS=" "
+THEME_LAUNCHER_DESKTOP_SOURCE_DIRS="${THEME_LAUNCHER_DESKTOP_SOURCE_DIRS:-/var/lib/snapd/desktop/applications:/usr/share/applications}"
 
 theme_launcher_fail() {
   printf "theme-launcher: %s\n" "$*" >&2
@@ -296,22 +297,6 @@ theme_launcher_check_required_command() {
   fi
 }
 
-THEME_LAUNCHER_CHROMIUM_BROWSERS=(chromium-browser chromium google-chrome brave-browser)
-THEME_LAUNCHER_CHROMIUM_POLICY_DIRS=(
-  "/etc/chromium/policies/managed"
-  "/etc/chromium/browser/policies/managed"
-  "/etc/opt/chrome/policies/managed"
-  "/etc/brave/policies/managed"
-)
-
-theme_launcher_chromium_installed() {
-  local browser
-  for browser in "${THEME_LAUNCHER_CHROMIUM_BROWSERS[@]}"; do
-    command -v "$browser" >/dev/null 2>&1 && return 0
-  done
-  return 1
-}
-
 read -r -d '' THEME_LAUNCHER_TARGET_REGISTRY <<'EOF' || true
 gnome||theme_launcher_apply_gnome||gsettings
 dock||theme_launcher_apply_ubuntu_dock||gsettings
@@ -328,7 +313,7 @@ gtk|theme_launcher_generate_gtk_css|theme_launcher_apply_gtk_css||
 firefox||theme_launcher_apply_firefox|theme_launcher_reload_firefox|firefox
 thunderbird||theme_launcher_apply_thunderbird|theme_launcher_reload_thunderbird|thunderbird
 vscode||theme_launcher_apply_vscode_family||code|code-insiders|codium|cursor
-chromium||theme_launcher_apply_chromium|theme_launcher_reload_chromium|chromium-browser|chromium|google-chrome|brave-browser
+brave||theme_launcher_apply_brave|theme_launcher_reload_brave|brave-browser
 codex||theme_launcher_apply_codex_desktop||codex-desktop
 EOF
 
@@ -366,7 +351,7 @@ theme_launcher_canonical_target() {
     firefox|mozilla-firefox|ff) printf "firefox" ;;
     thunderbird|mozilla-thunderbird|tbird|tb) printf "thunderbird" ;;
     code|code-insiders|codium|cursor|vscode) printf "vscode" ;;
-    chrome|google-chrome|chromium|brave|brave-browser) printf "chromium" ;;
+    brave|brave-browser) printf "brave" ;;
     codex|codex-desktop) printf "codex" ;;
     *)
       return 1
@@ -444,7 +429,6 @@ theme_launcher_risky_target_enabled() {
 
   case "$target" in
     gnome-shell) env_name="THEME_LAUNCHER_ENABLE_GNOME_SHELL" ;;
-    chromium) env_name="THEME_LAUNCHER_ENABLE_CHROMIUM" ;;
     *)
       return 0
       ;;
@@ -849,7 +833,6 @@ theme_launcher_check_theme_assets() {
   local background_count
   local icon_theme
   local cursor_theme
-  local chromium_theme_file="$theme_dir/chromium.theme"
   local vscode_json="$theme_dir/vscode.json"
   local metadata_file="$theme_dir/theme.json"
   local invalid=0
@@ -888,13 +871,6 @@ theme_launcher_check_theme_assets() {
     cursor_theme="$(tr -d '[:space:]' <"$theme_dir/cursor.theme")"
     if [[ -z "$cursor_theme" ]]; then
       theme_launcher_doctor_fail "theme:$theme_name" "cursor.theme is empty"
-      invalid=1
-    fi
-  fi
-
-  if [[ -f "$chromium_theme_file" ]]; then
-    if [[ ! "$(<"$chromium_theme_file")" =~ ^[[:space:]]*[0-9]{1,3}[[:space:]]*,[[:space:]]*[0-9]{1,3}[[:space:]]*,[[:space:]]*[0-9]{1,3}[[:space:]]*$ ]]; then
-      theme_launcher_doctor_fail "theme:$theme_name" "chromium.theme must be an r,g,b triplet"
       invalid=1
     fi
   fi
@@ -954,9 +930,6 @@ theme_launcher_doctor() {
   local shell_major=""
   local user_theme_supported=0
   local ubuntu_dock_schema=""
-  local has_chromium=0
-  local policy_dir
-  local chromium_policy_writable=0
 
   THEME_LAUNCHER_DOCTOR_FAILURES=0
   THEME_LAUNCHER_DOCTOR_WARNINGS=0
@@ -1110,33 +1083,8 @@ theme_launcher_doctor() {
     theme_launcher_doctor_warn "ghostty" "not installed; Ghostty integration will be skipped"
   fi
 
-  if theme_launcher_chromium_installed; then
-    has_chromium=1
-  fi
-
-  if [[ "$has_chromium" -eq 1 ]]; then
-    for policy_dir in "${THEME_LAUNCHER_CHROMIUM_POLICY_DIRS[@]}"; do
-      if [[ -d "$policy_dir" && -w "$policy_dir" ]]; then
-        chromium_policy_writable=1
-        break
-      fi
-      if [[ -d "$(dirname "$policy_dir")" && -w "$(dirname "$policy_dir")" ]]; then
-        chromium_policy_writable=1
-        break
-      fi
-    done
-
-    if [[ "$chromium_policy_writable" -eq 1 ]]; then
-      theme_launcher_doctor_pass "chromium-policy" "writable policy directory available"
-    else
-      theme_launcher_doctor_warn "chromium-policy" "browser is installed but managed policy directories are not writable"
-    fi
-
-    if [[ "${THEME_LAUNCHER_ENABLE_CHROMIUM:-0}" == "1" ]]; then
-      theme_launcher_doctor_pass "chromium:opt-in" "enabled by THEME_LAUNCHER_ENABLE_CHROMIUM=1"
-    else
-      theme_launcher_doctor_warn "chromium:opt-in" "disabled by default; use --only chromium or set THEME_LAUNCHER_ENABLE_CHROMIUM=1"
-    fi
+  if command -v brave-browser >/dev/null 2>&1; then
+    theme_launcher_doctor_pass "brave" "$(command -v brave-browser)"
   fi
 
   printf "\nSummary: %s failure(s), %s warning(s)\n" \
@@ -1454,6 +1402,7 @@ theme_launcher_generate_templates() {
 
   shopt -s nullglob
   for tpl in "$THEME_LAUNCHER_VENDOR_TEMPLATES_DIR"/*.tpl; do
+    [[ "$(basename "$tpl")" == "chromium.theme.tpl" ]] && continue
     output_path="$THEME_LAUNCHER_NEXT_DIR/$(basename "$tpl" .tpl)"
     [[ -f "$output_path" ]] && continue
     sed -f "$sed_script" "$tpl" >"$output_path"
@@ -1838,6 +1787,40 @@ window.nautilus-window separator,
 window.nautilus-window border,
 window.nautilus-window undershoot {
   color: @borders;
+}
+
+window.ghostty,
+window.ghostty > widget,
+window.ghostty .background,
+window.com-mitchellh-ghostty,
+window.com-mitchellh-ghostty > widget,
+window.com-mitchellh-ghostty .background,
+window.com\\.mitchellh\\.ghostty,
+window.com\\.mitchellh\\.ghostty > widget,
+window.com\\.mitchellh\\.ghostty .background {
+  background-color: @window_bg_color;
+  color: @window_fg_color;
+}
+
+window.ghostty headerbar,
+window.ghostty .titlebar,
+window.com-mitchellh-ghostty headerbar,
+window.com-mitchellh-ghostty .titlebar,
+window.com\\.mitchellh\\.ghostty headerbar,
+window.com\\.mitchellh\\.ghostty .titlebar {
+  background-color: @headerbar_bg_color;
+  color: @headerbar_fg_color;
+  box-shadow: none;
+}
+
+window.ghostty headerbar:backdrop,
+window.ghostty .titlebar:backdrop,
+window.com-mitchellh-ghostty headerbar:backdrop,
+window.com-mitchellh-ghostty .titlebar:backdrop,
+window.com\\.mitchellh\\.ghostty headerbar:backdrop,
+window.com\\.mitchellh\\.ghostty .titlebar:backdrop {
+  background-color: @sidebar_bg_color;
+  color: @headerbar_fg_color;
 }
 EOF
   cp -f "$THEME_LAUNCHER_NEXT_DIR/gtk-3.0.css" "$THEME_LAUNCHER_NEXT_DIR/gtk-4.0.css"
@@ -2262,8 +2245,7 @@ theme_launcher_apply_fzf() {
 
   mkdir -p "$(dirname "$shell_file")"
   cp -f "$generated_file" "$shell_file"
-  block='export THEME_LAUNCHER_ENABLE_CHROMIUM="${THEME_LAUNCHER_ENABLE_CHROMIUM:-1}"
-[ -f "$HOME/.config/fzf/theme-launcher.bash" ] && . "$HOME/.config/fzf/theme-launcher.bash"'
+  block='[ -f "$HOME/.config/fzf/theme-launcher.bash" ] && . "$HOME/.config/fzf/theme-launcher.bash"'
   theme_launcher_write_managed_block "$HOME/.bashrc" "$block"
 }
 
@@ -2282,6 +2264,109 @@ theme_launcher_apply_gtk_css() {
     block="$(<"$generated")"
     theme_launcher_write_css_managed_block "$target" "$block"
   done
+}
+
+theme_launcher_write_desktop_startup_override() {
+  local source_desktop="$1"
+  local target_desktop="$2"
+  local wm_class="$3"
+
+  mkdir -p "$(dirname "$target_desktop")"
+  awk -v wm_class="$wm_class" '
+    function maybe_insert() {
+      if (in_main && inserted == 0) {
+        if (seen_notify == 0) {
+          print "StartupNotify=false"
+        }
+        if (seen_wm == 0 && wm_class != "") {
+          print "StartupWMClass=" wm_class
+        }
+        inserted = 1
+      }
+    }
+
+    NR == 1 && $0 == "[Desktop Entry]" {
+      in_main = 1
+      print
+      next
+    }
+
+    in_main && /^\[Desktop Action / {
+      maybe_insert()
+      in_main = 0
+      print
+      next
+    }
+
+    in_main && /^[[:space:]]*$/ {
+      maybe_insert()
+      in_main = 0
+      print
+      next
+    }
+
+    in_main && /^StartupNotify=/ {
+      print "StartupNotify=false"
+      seen_notify = 1
+      next
+    }
+
+    in_main && /^StartupWMClass=/ {
+      if (wm_class != "") {
+        print "StartupWMClass=" wm_class
+      } else {
+        print
+      }
+      seen_wm = 1
+      next
+    }
+
+    { print }
+
+    END {
+      maybe_insert()
+    }
+  ' "$source_desktop" >"$target_desktop"
+}
+
+theme_launcher_write_mozilla_desktop_overrides() {
+  local app="${1:-all}"
+  local desktop_dirs=()
+  local source_dir
+  local source_desktop
+  local target_desktop
+  local pattern
+  local wm_class
+
+  IFS=':' read -r -a desktop_dirs <<< "$THEME_LAUNCHER_DESKTOP_SOURCE_DIRS"
+
+  for source_dir in "${desktop_dirs[@]}"; do
+    [[ -d "$source_dir" ]] || continue
+
+    if [[ "$app" == "all" || "$app" == "firefox" ]]; then
+      for pattern in firefox_firefox.desktop firefox.desktop org.mozilla.firefox.desktop; do
+        source_desktop="$source_dir/$pattern"
+        [[ -f "$source_desktop" ]] || continue
+        target_desktop="$HOME/.local/share/applications/$(basename "$source_desktop")"
+        wm_class="$(awk -F= '/^StartupWMClass=/ { print $2; exit }' "$source_desktop")"
+        theme_launcher_write_desktop_startup_override "$source_desktop" "$target_desktop" "${wm_class:-firefox_firefox}"
+      done
+    fi
+
+    if [[ "$app" == "all" || "$app" == "thunderbird" ]]; then
+      for pattern in thunderbird_thunderbird.desktop thunderbird.desktop org.mozilla.Thunderbird.desktop; do
+        source_desktop="$source_dir/$pattern"
+        [[ -f "$source_desktop" ]] || continue
+        target_desktop="$HOME/.local/share/applications/$(basename "$source_desktop")"
+        wm_class="$(awk -F= '/^StartupWMClass=/ { print $2; exit }' "$source_desktop")"
+        theme_launcher_write_desktop_startup_override "$source_desktop" "$target_desktop" "${wm_class:-thunderbird}"
+      done
+    fi
+  done
+
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
+  fi
 }
 
 theme_launcher_mozilla_profiles() {
@@ -2543,6 +2628,8 @@ theme_launcher_apply_mozilla_app() {
     command -v thunderbird >/dev/null 2>&1 || [[ -d "$HOME/snap/thunderbird/common/.thunderbird" ]] || return 0
   fi
 
+  theme_launcher_write_mozilla_desktop_overrides "$app"
+
   block="$(theme_launcher_mozilla_user_chrome_css "$app")"
   [[ -n "$block" ]] || return 0
 
@@ -2713,21 +2800,6 @@ theme_launcher_hex_to_json_rgb() {
   printf '[%d, %d, %d]' "0x${hex:0:2}" "0x${hex:2:2}" "0x${hex:4:2}"
 }
 
-theme_launcher_normalize_rgb_triplet() {
-  local rgb_value="$1"
-  local r g b
-
-  IFS=',' read -r r g b <<< "$rgb_value"
-  r="${r//[[:space:]]/}"
-  g="${g//[[:space:]]/}"
-  b="${b//[[:space:]]/}"
-
-  [[ "$r" =~ ^[0-9]{1,3}$ && "$g" =~ ^[0-9]{1,3}$ && "$b" =~ ^[0-9]{1,3}$ ]] || return 1
-  (( r <= 255 && g <= 255 && b <= 255 )) || return 1
-
-  printf "%s,%s,%s" "$r" "$g" "$b"
-}
-
 theme_launcher_write_brave_theme_extension() {
   local colors_file="$THEME_LAUNCHER_CURRENT_DIR/colors.toml"
   local extension_dir="$THEME_LAUNCHER_STATE_DIR/brave-theme-extension"
@@ -2880,69 +2952,7 @@ PY
   done < <(find "$profile_root" -maxdepth 2 -name Preferences -print)
 }
 
-theme_launcher_apply_chromium() {
-  local chromium_theme_file="$THEME_LAUNCHER_CURRENT_DIR/chromium.theme"
-  local rgb_value r g b background_hex
-  local policy_json
-  local applied=0
-  local has_brave=0
-  local has_policy_browser=0
-  local dir
-
-  theme_launcher_risky_target_enabled "chromium" || return 0
-  theme_launcher_chromium_installed || return 0
-
-  command -v brave-browser >/dev/null 2>&1 && has_brave=1
-
-  if [[ ! -f "$chromium_theme_file" ]]; then
-    theme_launcher_remove_brave_policy_theme
-    theme_launcher_write_brave_theme_extension
-    theme_launcher_write_brave_desktop_override
-    theme_launcher_apply_brave_profile_theme
-    return 0
-  fi
-
-  if ! rgb_value="$(theme_launcher_normalize_rgb_triplet "$(<"$chromium_theme_file")")"; then
-    theme_launcher_remove_brave_policy_theme
-    theme_launcher_write_brave_theme_extension
-    theme_launcher_write_brave_desktop_override
-    theme_launcher_apply_brave_profile_theme
-    return 0
-  fi
-
-  IFS=',' read -r r g b <<< "$rgb_value"
-  background_hex="$(printf '#%02x%02x%02x' "$r" "$g" "$b")"
-
-  policy_json="{\"BrowserThemeColor\": \"${background_hex}\"}"
-  if command -v chromium-browser >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1 || command -v google-chrome >/dev/null 2>&1; then
-    has_policy_browser=1
-  fi
-
-  for dir in "${THEME_LAUNCHER_CHROMIUM_POLICY_DIRS[@]}"; do
-    # Brave ignores richer startup theming when BrowserThemeColor policy is set.
-    # The generated desktop entry below uses Chromium's autogenerated theme path.
-    if [[ "$dir" == "/etc/brave/policies/managed" && "$has_brave" -eq 1 ]]; then
-      continue
-    fi
-    if [[ -d "$dir" && -w "$dir" ]]; then
-      printf "%s\n" "$policy_json" >"$dir/theme-launcher.json"
-      applied=1
-      break
-    elif [[ -d "$(dirname "$dir")" && -w "$(dirname "$dir")" ]]; then
-      mkdir -p "$dir"
-      printf "%s\n" "$policy_json" >"$dir/theme-launcher.json"
-      applied=1
-      break
-    fi
-  done
-
-  if [[ "$applied" -eq 0 && "$has_policy_browser" -eq 1 ]]; then
-    theme_launcher_warn "Chromium policy directory not writable; to enable browser theming run: sudo mkdir -p /etc/chromium/policies/managed && sudo chmod o+w /etc/chromium/policies/managed"
-    if snap list chromium >/dev/null 2>&1; then
-      theme_launcher_warn "For snap Chromium, also run: sudo snap connect chromium:etc-chromium-browser-policies"
-    fi
-  fi
-
+theme_launcher_apply_brave() {
   theme_launcher_remove_brave_policy_theme
   theme_launcher_write_brave_theme_extension
   theme_launcher_write_brave_desktop_override
@@ -2974,10 +2984,6 @@ theme_launcher_reload_brave() {
 
   theme_launcher_apply_brave_profile_theme
   nohup brave-browser --load-extension="$extension_dir" >/tmp/theme-launcher-brave.log 2>&1 &
-}
-
-theme_launcher_reload_chromium() {
-  theme_launcher_reload_brave
 }
 
 theme_launcher_apply_codex_desktop() {
