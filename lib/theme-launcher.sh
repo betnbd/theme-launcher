@@ -328,7 +328,7 @@ gtk|theme_launcher_generate_gtk_css|theme_launcher_apply_gtk_css||
 firefox||theme_launcher_apply_firefox||firefox
 thunderbird||theme_launcher_apply_thunderbird||thunderbird
 vscode||theme_launcher_apply_vscode_family||code|code-insiders|codium|cursor
-chromium||theme_launcher_apply_chromium||chromium-browser|chromium|google-chrome|brave-browser
+chromium||theme_launcher_apply_chromium|theme_launcher_reload_chromium|chromium-browser|chromium|google-chrome|brave-browser
 codex||theme_launcher_apply_codex_desktop||codex-desktop
 EOF
 
@@ -2740,6 +2740,10 @@ theme_launcher_brave_running() {
   pgrep -f '^/opt/brave.com/brave/brave|^/bin/bash /usr/bin/brave-browser-stable' >/dev/null 2>&1
 }
 
+theme_launcher_brave_pids() {
+  pgrep -f '^/opt/brave.com/brave/brave|^/bin/bash /usr/bin/brave-browser-stable' || true
+}
+
 theme_launcher_apply_brave_profile_theme() {
   local extension_dir="$THEME_LAUNCHER_STATE_DIR/brave-theme-extension"
   local profile_root="$HOME/.config/BraveSoftware/Brave-Browser"
@@ -2750,7 +2754,7 @@ theme_launcher_apply_brave_profile_theme() {
   [[ -d "$profile_root" ]] || return 0
 
   if theme_launcher_brave_running; then
-    theme_launcher_warn "Brave is running; restart Brave after apply to load the updated theme extension"
+    theme_launcher_warn "Brave is running; it will restart after apply to load the updated theme extension"
     return 0
   fi
 
@@ -2834,6 +2838,37 @@ theme_launcher_apply_chromium() {
   theme_launcher_write_brave_theme_extension
   theme_launcher_write_brave_desktop_override
   theme_launcher_apply_brave_profile_theme
+}
+
+theme_launcher_reload_brave() {
+  local extension_dir="$THEME_LAUNCHER_STATE_DIR/brave-theme-extension"
+  local pids
+  local waited=0
+
+  command -v brave-browser >/dev/null 2>&1 || return 0
+  [[ -f "$extension_dir/manifest.json" ]] || return 0
+  theme_launcher_brave_running || return 0
+
+  pids="$(theme_launcher_brave_pids)"
+  [[ -n "$pids" ]] || return 0
+  kill -TERM $pids >/dev/null 2>&1 || true
+
+  while theme_launcher_brave_running && (( waited < 50 )); do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+
+  if theme_launcher_brave_running; then
+    theme_launcher_warn "Brave did not exit cleanly; close and reopen Brave to load the updated theme"
+    return 0
+  fi
+
+  theme_launcher_apply_brave_profile_theme
+  nohup brave-browser --load-extension="$extension_dir" >/tmp/theme-launcher-brave.log 2>&1 &
+}
+
+theme_launcher_reload_chromium() {
+  theme_launcher_reload_brave
 }
 
 theme_launcher_apply_codex_desktop() {
