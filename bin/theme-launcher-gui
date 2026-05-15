@@ -32,7 +32,6 @@ STATE_DIR = Path(os.environ.get("THEME_LAUNCHER_HOME", Path.home() / ".local/sha
 GUI_STATE_FILE = STATE_DIR / "gui-state.json"
 RECENT_THEMES_FILE = STATE_DIR / "recent-themes.list"
 MAX_RECENT_THEMES = 12
-PREVIEW_CACHE_LIMIT = 24
 WALLPAPER_THUMB_WIDTH = 128
 WALLPAPER_THUMB_HEIGHT = 72
 
@@ -92,6 +91,52 @@ def clear_box(box):
         next_child = child.get_next_sibling()
         box.remove(child)
         child = next_child
+
+
+def texture_from_pixbuf(pixbuf):
+    if not pixbuf.get_has_alpha():
+        pixbuf = pixbuf.add_alpha(False, 0, 0, 0)
+    return Gdk.MemoryTexture.new(
+        pixbuf.get_width(),
+        pixbuf.get_height(),
+        Gdk.MemoryFormat.R8G8B8A8,
+        GLib.Bytes.new(pixbuf.get_pixels()),
+        pixbuf.get_rowstride(),
+    )
+
+
+def texture_from_file_at_scale(path, width, height):
+    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, width, height, True)
+    return texture_from_pixbuf(pixbuf)
+
+
+def preview_texture_from_file(path):
+    scaled = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+        path,
+        PREVIEW_IMAGE_WIDTH,
+        PREVIEW_IMAGE_HEIGHT,
+        True,
+    )
+    pixbuf = GdkPixbuf.Pixbuf.new(
+        GdkPixbuf.Colorspace.RGB,
+        True,
+        8,
+        PREVIEW_IMAGE_WIDTH,
+        PREVIEW_IMAGE_HEIGHT,
+    )
+    pixbuf.fill(0x00000000)
+    x_offset = max((PREVIEW_IMAGE_WIDTH - scaled.get_width()) // 2, 0)
+    y_offset = max((PREVIEW_IMAGE_HEIGHT - scaled.get_height()) // 2, 0)
+    scaled.copy_area(
+        0,
+        0,
+        scaled.get_width(),
+        scaled.get_height(),
+        pixbuf,
+        x_offset,
+        y_offset,
+    )
+    return texture_from_pixbuf(pixbuf)
 
 
 def wallpaper_label(name):
@@ -300,7 +345,6 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self._suspend_wallpaper_change = False
         self._wallpaper_choices = []
         self._local_wallpaper_choices = {}
-        self._preview_texture_cache = {}
         self.desktop_preview_enabled = False
         self.preview_mode = self.gui_state.get("preview_mode", "workspace")
         if self.preview_mode not in {"workspace", "wallpaper"}:
@@ -693,7 +737,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             "wallpaper": self._selected_wallpaper_path_for(theme, metadata),
         }
 
-    def _sync_preview_mode(self, theme, metadata):
+    def _choose_preview_mode(self, theme, metadata):
         sources = self._preview_sources_for(theme, metadata)
         if sources.get(self.preview_mode):
             chosen_mode = self.preview_mode
@@ -753,7 +797,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
         self.apply_summary_label.set_text(self._apply_summary_for(theme, metadata))
 
         self._set_preview_badges(metadata)
-        preview_path = self._sync_preview_mode(theme, metadata)
+        preview_path = self._choose_preview_mode(theme, metadata)
         self._set_preview_image(preview_path)
         if update_wallpaper_selector:
             self._update_wallpaper_selector(theme, metadata)
@@ -768,40 +812,7 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             return
 
         try:
-            stat = Path(preview_path).stat()
-            cache_key = (preview_path, stat.st_mtime_ns)
-            texture = self._preview_texture_cache.get(cache_key)
-            if texture is None:
-                scaled = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    preview_path,
-                    PREVIEW_IMAGE_WIDTH,
-                    PREVIEW_IMAGE_HEIGHT,
-                    True,
-                )
-                pixbuf = GdkPixbuf.Pixbuf.new(
-                    GdkPixbuf.Colorspace.RGB,
-                    True,
-                    8,
-                    PREVIEW_IMAGE_WIDTH,
-                    PREVIEW_IMAGE_HEIGHT,
-                )
-                pixbuf.fill(0x00000000)
-                x_offset = max((PREVIEW_IMAGE_WIDTH - scaled.get_width()) // 2, 0)
-                y_offset = max((PREVIEW_IMAGE_HEIGHT - scaled.get_height()) // 2, 0)
-                scaled.copy_area(
-                    0,
-                    0,
-                    scaled.get_width(),
-                    scaled.get_height(),
-                    pixbuf,
-                    x_offset,
-                    y_offset,
-                )
-                texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-                self._preview_texture_cache[cache_key] = texture
-                if len(self._preview_texture_cache) > PREVIEW_CACHE_LIMIT:
-                    oldest_key = next(iter(self._preview_texture_cache))
-                    self._preview_texture_cache.pop(oldest_key, None)
+            texture = preview_texture_from_file(preview_path)
         except (GLib.Error, OSError):
             self.preview_picture.set_paintable(None)
             return
@@ -1382,13 +1393,14 @@ class ThemeLauncherWindow(Gtk.ApplicationWindow):
             tile.connect("clicked", self.on_wallpaper_thumb_clicked, theme, choice)
             tile_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             try:
-                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                texture = texture_from_file_at_scale(
                     wallpaper.get("path", ""),
                     WALLPAPER_THUMB_WIDTH,
                     WALLPAPER_THUMB_HEIGHT,
-                    True,
                 )
-                tile_box.append(Gtk.Image.new_from_paintable(Gdk.Texture.new_for_pixbuf(pixbuf)))
+                image = Gtk.Image.new_from_paintable(texture)
+                image.set_size_request(WALLPAPER_THUMB_WIDTH, WALLPAPER_THUMB_HEIGHT)
+                tile_box.append(image)
             except (GLib.Error, OSError):
                 tile_box.append(Gtk.Label(label="No preview"))
             tile_label = Gtk.Label(label=label)

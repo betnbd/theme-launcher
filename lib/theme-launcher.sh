@@ -314,7 +314,6 @@ firefox||theme_launcher_apply_firefox|theme_launcher_reload_firefox|firefox
 thunderbird||theme_launcher_apply_thunderbird|theme_launcher_reload_thunderbird|thunderbird
 vscode||theme_launcher_apply_vscode_family||code|code-insiders|codium|cursor
 brave||theme_launcher_apply_brave|theme_launcher_reload_brave|brave-browser
-codex||theme_launcher_apply_codex_desktop||codex-desktop
 EOF
 
 theme_launcher_target_registry() {
@@ -352,7 +351,6 @@ theme_launcher_canonical_target() {
     thunderbird|mozilla-thunderbird|tbird|tb) printf "thunderbird" ;;
     code|code-insiders|codium|cursor|vscode) printf "vscode" ;;
     brave|brave-browser) printf "brave" ;;
-    codex|codex-desktop) printf "codex" ;;
     *)
       return 1
       ;;
@@ -771,46 +769,6 @@ theme_launcher_all_theme_metadata() {
     "$THEME_LAUNCHER_WALLPAPER_NAME_FILE"
 }
 
-theme_launcher_generate_previews() {
-  local dry_run=0
-  local replace=0
-  local arg
-  local python_cmd
-
-  while [[ $# -gt 0 ]]; do
-    arg="$1"
-    case "$arg" in
-      --dry-run|--list)
-        dry_run=1
-        ;;
-      --replace)
-        replace=1
-        ;;
-      *)
-        theme_launcher_fail "unknown generate-previews option: $arg"
-        ;;
-    esac
-    shift || true
-  done
-
-  python_cmd="$(theme_launcher_python_pillow_command)" || theme_launcher_fail "missing python3 with Pillow image support"
-
-  "$python_cmd" "$THEME_LAUNCHER_PYTHON_DIR/generate_previews.py" \
-    "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" \
-    "$THEME_LAUNCHER_THEMES_DIR" \
-    "$THEME_LAUNCHER_STATE_DIR" \
-    "$dry_run" \
-    "$replace"
-}
-
-
-theme_launcher_audit_themes() {
-  theme_launcher_require python3
-  python3 "$THEME_LAUNCHER_PYTHON_DIR/audit_themes.py" \
-    "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" \
-    "$THEME_LAUNCHER_THEMES_DIR"
-}
-
 theme_launcher_check_path_write() {
   local label="$1"
   local path="$2"
@@ -961,9 +919,9 @@ theme_launcher_doctor() {
   fi
 
   if [[ -d "$THEME_LAUNCHER_THEMES_DIR" ]]; then
-    theme_launcher_doctor_pass "synced-themes-dir" "$THEME_LAUNCHER_THEMES_DIR"
+    theme_launcher_doctor_pass "vendor-themes-dir" "$THEME_LAUNCHER_THEMES_DIR"
   else
-    theme_launcher_doctor_warn "synced-themes-dir" "missing: $THEME_LAUNCHER_THEMES_DIR"
+    theme_launcher_doctor_warn "vendor-themes-dir" "missing: $THEME_LAUNCHER_THEMES_DIR"
   fi
 
   if [[ -d "$THEME_LAUNCHER_CUSTOM_THEMES_DIR" ]]; then
@@ -974,7 +932,7 @@ theme_launcher_doctor() {
 
   mapfile -t themes < <(theme_launcher_list)
   if [[ "${#themes[@]}" -eq 0 ]]; then
-    theme_launcher_doctor_fail "theme-catalog" "no themes installed; run: theme-launcher sync"
+    theme_launcher_doctor_fail "theme-catalog" "no themes found in bundled, vendor, or custom theme directories"
   else
     theme_launcher_doctor_pass "theme-catalog" "${#themes[@]} theme(s)"
   fi
@@ -2986,72 +2944,6 @@ theme_launcher_reload_brave() {
   nohup brave-browser --load-extension="$extension_dir" >/tmp/theme-launcher-brave.log 2>&1 &
 }
 
-theme_launcher_apply_codex_desktop() {
-  local colors_file="$THEME_LAUNCHER_CURRENT_DIR/colors.toml"
-  local state_file="${CODEX_HOME:-$HOME/.codex}/.codex-global-state.json"
-  local background foreground accent selection_background color2
-  local -A colors
-
-  command -v codex-desktop >/dev/null 2>&1 || [[ -d "$HOME/.config/Codex" ]] || return 0
-  [[ -f "$colors_file" ]] || return 0
-
-  theme_launcher_load_colors_into "$colors_file" colors
-  background="${colors[background]:-#0f1117}"
-  foreground="${colors[foreground]:-#f4f4f5}"
-  accent="${colors[accent]:-$foreground}"
-  selection_background="${colors[selection_background]:-$accent}"
-  color2="${colors[color2]:-$accent}"
-
-  mkdir -p "$(dirname "$state_file")"
-  [[ -f "$state_file" ]] || printf "{}\n" >"$state_file"
-  cp -a "$state_file" "$state_file.theme-launcher.bak" 2>/dev/null || true
-
-  THEME_LAUNCHER_CODEX_STATE_FILE="$state_file" \
-  THEME_LAUNCHER_CODEX_BACKGROUND="$background" \
-  THEME_LAUNCHER_CODEX_FOREGROUND="$foreground" \
-  THEME_LAUNCHER_CODEX_ACCENT="$accent" \
-  THEME_LAUNCHER_CODEX_SELECTION_BACKGROUND="$selection_background" \
-  THEME_LAUNCHER_CODEX_SKILL="$color2" \
-  node <<'NODE'
-const fs = require("fs");
-
-const path = process.env.THEME_LAUNCHER_CODEX_STATE_FILE;
-const readColor = (name) => process.env[name];
-const theme = {
-  surface: readColor("THEME_LAUNCHER_CODEX_BACKGROUND"),
-  ink: readColor("THEME_LAUNCHER_CODEX_FOREGROUND"),
-  accent: readColor("THEME_LAUNCHER_CODEX_ACCENT"),
-  contrast: 18,
-  opaqueWindows: true,
-  semanticColors: {
-    diffAdded: readColor("THEME_LAUNCHER_CODEX_SKILL"),
-    diffRemoved: "#f85525",
-    skill: readColor("THEME_LAUNCHER_CODEX_SELECTION_BACKGROUND"),
-  },
-};
-
-let state = {};
-try {
-  state = JSON.parse(fs.readFileSync(path, "utf8"));
-} catch {
-  state = {};
-}
-
-state.appearanceTheme = "dark";
-state.appearanceDarkChromeTheme = {
-  ...(state.appearanceDarkChromeTheme || {}),
-  ...theme,
-  fonts: { ...(state.appearanceDarkChromeTheme || {}).fonts },
-  semanticColors: {
-    ...((state.appearanceDarkChromeTheme || {}).semanticColors || {}),
-    ...theme.semanticColors,
-  },
-};
-
-fs.writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`);
-NODE
-}
-
 theme_launcher_generate_target() {
   local name="$1"
   local generate_fn="$2"
@@ -3135,7 +3027,7 @@ theme_launcher_choose_theme() {
   local theme
 
   mapfile -t themes < <(theme_launcher_list)
-  [[ "${#themes[@]}" -gt 0 ]] || theme_launcher_fail "no themes installed; run: theme-launcher sync"
+  [[ "${#themes[@]}" -gt 0 ]] || theme_launcher_fail "no themes found in bundled, vendor, or custom theme directories"
 
   if [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v zenity >/dev/null 2>&1; then
     selected="$(zenity --list --title="Theme Launcher" --column="Theme" "${themes[@]}" 2>/dev/null || true)"
