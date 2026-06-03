@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Theme Launcher
+GenericName=Desktop Theme Switcher
+Comment=Switch GNOME and app themes
+Exec=theme-launcher gui
+Icon=theme-launcher
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=theme;color;appearance;gnome;dark;light;
+StartupNotify=true

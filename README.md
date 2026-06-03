@@ -14,11 +14,12 @@ Install the runtime packages:
 sudo apt install bash jq python3 python3-gi gir1.2-gtk-4.0 gir1.2-gdkpixbuf-2.0 python3-pil
 ```
 
-Put the launcher on your `PATH`:
+Then run the installer. It links the launcher onto your `PATH`
+(`~/.local/bin`) and installs the app icon and desktop entry, so Theme
+Launcher shows up in your application launcher:
 
 ```bash
-mkdir -p ~/.local/bin
-ln -sfn "$PWD/bin/theme-launcher" ~/.local/bin/theme-launcher
+./install.sh
 ```
 
 Run the checks, then open the GTK launcher:
